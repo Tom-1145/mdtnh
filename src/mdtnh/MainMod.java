@@ -12,6 +12,8 @@ import  mindustry.content.Items;
 import  mindustry.content.Liquids;
 import mindustry.world.draw.*;
 
+import static mdtnh.ModCrafters.test;
+
 
 public class MainMod extends Mod{
 
@@ -23,7 +25,8 @@ public class MainMod extends Mod{
     public void loadContent(){
         ModItems.load();
         ModLiquids.load();
-        ModCrafters.load();
+        ModCrafters.load(this);
+        Log.info("Test block registered: @", test == null ? "null" : test.name);
     }
 
 }
