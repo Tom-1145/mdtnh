@@ -1,54 +1,76 @@
 package mdtnh;
 
-
 import arc.Core;
-import arc.struct.*;
+import arc.graphics.*;
+import arc.graphics.g2d.*;
+import arc.scene.style.*;
+import arc.scene.ui.*;
+import arc.scene.ui.layout.*;
 import arc.util.*;
-import mindustry.content.Items;
-import mindustry.ctype.*;
+import arc.util.io.*;          // 新增：导入 Reads 和 Writes
+import mindustry.content.*;
 import mindustry.gen.*;
-import mindustry.graphics.Pal;
+import mindustry.graphics.*;
 import mindustry.type.*;
-import mindustry.ui.Bar;
+import mindustry.ui.*;
 import mindustry.world.*;
 import mindustry.world.blocks.production.*;
-import mindustry.world.consumers.*;
-import mindustry.world.draw.DrawDefault;
 import mindustry.world.meta.*;
+import mindustry.world.draw.*;
 
-/**
- * 单一工厂，按顺序遍历配方，执行第一个材料充足的配方。
- */
 public class RecipeCrafter extends GenericCrafter {
-    /** 按优先级排列的配方列表 */
+
+    /** 旧版配方列表（仅在没有分组时使用） */
     public Recipe[] recipes = new Recipe[]{};
+
+    /** 配方分组（优先级最高） */
+    public RecipeGroup[] groups = new RecipeGroup[]{};
 
     public RecipeCrafter(String name) {
         super(name);
-        // 默认值，可在 JSON 中覆盖
         update = true;
         solid = true;
         hasItems = true;
-        this.buildType = MDTFactoryBuild::new;
-        this.drawer = new DrawDefault();         // 必须：指定绘制器
-        // 必须：设置为可见（否则菜单中不会出现）
-        this.buildVisibility = BuildVisibility.shown;
-        this.requirements(Category.crafting, ItemStack.with(Items.copper, 50));
+        buildType = MDTFactoryBuild::new;
+        drawer = new DrawDefault();
+        buildVisibility = BuildVisibility.shown;
+        requirements(Category.crafting, ItemStack.with(Items.copper, 50));
         itemCapacity = 20;
         liquidCapacity = 20f;
+
+        configurable = true;
+        saveConfig = true;
+        copyConfig = true;
+
+        // 配置处理器：接收组索引
+        config(Integer.class, (MDTFactoryBuild build, Integer groupIdx) -> {
+            build.selectedGroup = groupIdx;
+            build.currentRecipe = -1;
+            build.progress = 0f;
+        });
     }
 
-    /**
-     * 自定义配方类，也可以直接使用 GenericCrafter.Recipe 并添加多个配方处理逻辑。
-     * 这里为了清晰独立定义。
-     */
+    /** 获取最终使用的配方列表（兼容旧版 recipes） */
+    public RecipeGroup[] getEffectiveGroups() {
+        if (groups.length > 0) {
+            return groups;
+        } else if (recipes.length > 0) {
+            // 自动包装成单一默认组
+            return new RecipeGroup[]{
+                    new RecipeGroup("default", null, recipes)
+            };
+        } else {
+            return new RecipeGroup[]{};
+        }
+    }
+
+    /** 配方 */
     public static class Recipe {
         public ItemStack[] inputItems;
         public LiquidStack[] inputLiquids;
         public ItemStack outputItem;
         public LiquidStack outputLiquid;
         public float craftTime;
-        // 可扩展：产出概率、电力消耗等
 
         public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
                       ItemStack outputItem, LiquidStack outputLiquid, float craftTime) {
@@ -59,38 +81,50 @@ public class RecipeCrafter extends GenericCrafter {
             this.craftTime = craftTime;
         }
 
-        /** 快速创建仅含物品的配方 */
         public static Recipe items(ItemStack[] in, ItemStack out, float time) {
-            return new Recipe(in, LiquidStack.empty, out, null, time);
+            return new Recipe(in, new LiquidStack[]{}, out, null, time);
         }
 
-        /** 快速创建含液体的配方 */
         public static Recipe withLiquid(ItemStack[] in, LiquidStack[] liqIn,
                                         ItemStack out, LiquidStack liqOut, float time) {
             return new Recipe(in, liqIn, out, liqOut, time);
         }
     }
 
-    /**
-     * 覆盖方块设置，根据当前配方的最大需求动态显示材料图标（非必须，但让界面更友好）
-     */
+    /** 配方分组 */
+    public static class RecipeGroup {
+        public String name;       // 内部名，用于本地化
+        public TextureRegion icon; // 可选图标
+        public Recipe[] recipes;
+
+        public RecipeGroup(String name, TextureRegion icon, Recipe[] recipes) {
+            this.name = name;
+            this.icon = icon;
+            this.recipes = recipes;
+        }
+    }
+
     @Override
     public void setBars() {
         super.setBars();
 
         addBar("progress", (MDTFactoryBuild build) -> new Bar(
-                // 进度条显示的文本：配方名 + 百分比
                 () -> {
-                    if (build.currentRecipe >= 0 && build.currentRecipe < recipes.length) {
-                        Recipe r = recipes[build.currentRecipe];
-                        String itemName = r.outputItem != null ? r.outputItem.item.localizedName : "???";
-                        return itemName + " " + (int)(build.progress * 100) + "%";
+                    RecipeGroup[] groups = getEffectiveGroups();
+                    if (build.selectedGroup >= 0 && build.selectedGroup < groups.length) {
+                        RecipeGroup group = groups[build.selectedGroup];
+                        String groupName = Core.bundle.get("group." + group.name, group.name);
+                        if (build.currentRecipe >= 0 && build.currentRecipe < group.recipes.length) {
+                            Recipe r = group.recipes[build.currentRecipe];
+                            String itemName = r.outputItem != null ? r.outputItem.item.localizedName :
+                                    (r.outputLiquid != null ? r.outputLiquid.liquid.localizedName : "???");
+                            return groupName + " - " + itemName + " " + (int)(build.progress * 100) + "%";
+                        }
+                        return groupName + " - 空闲";
                     }
-                    return Core.bundle.get("bar.no-recipe");
+                    return Core.bundle.get("bar.no-recipe", "无配方");
                 },
-                // 进度条颜色（可自定义，这里用原版制造进度颜色）
                 () -> Pal.accent,
-                // 进度值（0~1）
                 () -> build.progress
         ));
     }
@@ -98,117 +132,124 @@ public class RecipeCrafter extends GenericCrafter {
     @Override
     public void setStats() {
         super.setStats();
+
+        RecipeGroup[] groups = getEffectiveGroups();
+        if (groups.length == 0) return;
+
         stats.add(Stat.output, table -> {
-            table.row();
-            for (Recipe r : recipes) {
-                if (r.outputItem != null) {
-                    table.add(r.outputItem.item.emoji() + " " + r.outputItem.item.localizedName);
+            for (RecipeGroup group : groups) {
+                String groupName = Core.bundle.get("group." + group.name, group.name);
+                table.add("[accent]" + groupName + "[]").padTop(8).colspan(2).left().row();
+                for (Recipe r : group.recipes) {
+                    if (r.outputItem != null) {
+                        table.image(r.outputItem.item.uiIcon).size(24);        // 修正
+                        table.add(r.outputItem.item.localizedName + " x" + r.outputItem.amount).left().padLeft(4).row();
+                    }
+                    if (r.outputLiquid != null) {
+                        table.image(r.outputLiquid.liquid.uiIcon).size(24);    // 修正
+                        table.add(r.outputLiquid.liquid.localizedName + " " + r.outputLiquid.amount + "单位").left().padLeft(4).row();
+                    }
                 }
-                if (r.outputLiquid != null) {
-                    table.add(r.outputLiquid.liquid.emoji() + " " + r.outputLiquid.liquid.localizedName);
-                }
-                table.row();
             }
         });
     }
 
-    // 核心构建实体类
+    // 核心建筑实体
     public class MDTFactoryBuild extends GenericCrafterBuild {
-        protected int currentRecipe = -1;
+        public int selectedGroup = -1;
+        public int currentRecipe = -1;
 
         @Override
         public void updateTile() {
-            // 若有正在进行的生产且配方仍有效则继续，否则尝试切换配方
-            if (currentRecipe >= 0 && currentRecipe < recipes.length) {
-                Recipe r = recipes[currentRecipe];
-                if (!hasAllMaterials(r) || outputFull(r)) {
-                    // 材料不足或输出满，放弃当前配方
+            RecipeGroup[] groups = getEffectiveGroups();
+
+            // 持续输出所有可能的产物（无论选择哪个组）
+            for (RecipeGroup group : groups) {
+                for (Recipe r : group.recipes) {
+                    if (r.outputItem != null && items.has(r.outputItem.item)) {
+                        dump(r.outputItem.item);
+                    }
+                    if (r.outputLiquid != null && liquids.get(r.outputLiquid.liquid) > 0.001f) {
+                        dumpLiquid(r.outputLiquid.liquid);
+                    }
+                }
+            }
+
+            // 没有选中组则停止
+            if (selectedGroup < 0 || selectedGroup >= groups.length) {
+                progress = 0f;
+                currentRecipe = -1;
+                return;
+            }
+
+            Recipe[] activeRecipes = groups[selectedGroup].recipes;
+
+            // 检查当前配方是否仍有效
+            if (currentRecipe >= 0 && currentRecipe < activeRecipes.length) {
+                if (!hasAllMaterials(activeRecipes[currentRecipe]) || outputFull(activeRecipes[currentRecipe])) {
                     currentRecipe = -1;
                 }
             }
 
-            // 如果没有正在处理的配方，按顺序查找第一个可行的配方
+            // 按顺序选择第一个可行的配方
             if (currentRecipe == -1) {
-                for (int i = 0; i < recipes.length; i++) {
-                    Recipe r = recipes[i];
-                    boolean materials = hasAllMaterials(r);
-                    boolean full = outputFull(r);
-                    if (hasAllMaterials(r) && !outputFull(r)) {
+                for (int i = 0; i < activeRecipes.length; i++) {
+                    if (hasAllMaterials(activeRecipes[i]) && !outputFull(activeRecipes[i])) {
                         currentRecipe = i;
-                        progress = 0f; // 切换配方时重置进度
+                        progress = 0f;
                         break;
                     }
                 }
             }
 
-            // 执行原版生产逻辑（但只针对当前配方）
-            if (currentRecipe >= 0 && currentRecipe < recipes.length) {
-                Recipe active = recipes[currentRecipe];
-                // 临时将原版 craftTime 设为当前配方的制作时间，使进度条正常
+            // 生产逻辑
+            if (currentRecipe >= 0 && currentRecipe < activeRecipes.length) {
+                Recipe active = activeRecipes[currentRecipe];
                 craftTime = active.craftTime;
-                // 使用父类的生产推进
                 if (shouldConsume()) {
-                    progress +=(1.0f / craftTime) *  delta() * efficiency;
+                    progress += (1.0f / craftTime) * delta() * efficiency;
                 }
-                // 进度完成则执行生产
                 if (progress >= 1f) {
                     craft(active);
                     progress %= 1f;
-                }
-                // 生产完成后检查是否仍能继续该配方，否则在下一帧切换
-                if (!hasAllMaterials(active) || outputFull(active)) {
-                    currentRecipe = -1;
+                    // 即时输出
+                    if (active.outputItem != null) dump(active.outputItem.item);
+                    if (active.outputLiquid != null) dumpLiquid(active.outputLiquid.liquid);
+                    // 检查是否还能继续
+                    if (!hasAllMaterials(active) || outputFull(active)) {
+                        currentRecipe = -1;
+                    }
                 }
             } else {
-                // 无可用配方，进度归零
                 progress = 0f;
-            }
-
-            // 对于每种可能产出的物品，都尝试推出
-            for (Recipe r : recipes) {
-                if (r.outputItem != null && items.has(r.outputItem.item)) {
-                    dump(r.outputItem.item);
-                }
-                if (r.outputLiquid != null && liquids.get(r.outputLiquid.liquid) > 0) {
-                    dumpLiquid(r.outputLiquid.liquid);
-                }
             }
         }
 
-        /**
-         * 执行一次配方的生产：消耗物品/液体，产出物品/液体。
-         */
         protected void craft(Recipe recipe) {
-            // 消耗物品
             if (recipe.inputItems != null) {
                 for (ItemStack stack : recipe.inputItems) {
                     items.remove(stack.item, stack.amount);
                 }
             }
-            // 消耗液体
             if (recipe.inputLiquids != null) {
                 for (LiquidStack stack : recipe.inputLiquids) {
                     liquids.remove(stack.liquid, stack.amount);
                 }
             }
-            // 产出物品
             if (recipe.outputItem != null) {
                 offload(recipe.outputItem.item);
             }
-            // 产出液体
             if (recipe.outputLiquid != null) {
                 handleLiquid(this, recipe.outputLiquid.liquid, recipe.outputLiquid.amount);
             }
         }
 
         private boolean hasAllMaterials(Recipe r) {
-            // 检查物品
             if (r.inputItems != null) {
                 for (ItemStack stack : r.inputItems) {
                     if (items.get(stack.item) < stack.amount) return false;
                 }
             }
-            // 检查液体
             if (r.inputLiquids != null) {
                 for (LiquidStack stack : r.inputLiquids) {
                     if (liquids.get(stack.liquid) < stack.amount) return false;
@@ -222,14 +263,16 @@ public class RecipeCrafter extends GenericCrafter {
             if (r.outputLiquid != null && liquids.get(r.outputLiquid.liquid) >= liquidCapacity) return true;
             return false;
         }
+
         @Override
         public boolean acceptItem(Building source, Item item) {
-            // 遍历所有配方，只要任意配方需要该物品就允许输入
-            for (Recipe r : recipes) {
-                if (r.inputItems != null) {
-                    for (ItemStack stack : r.inputItems) {
-                        if (stack.item == item && items.get(item) < itemCapacity) {
-                            return true;
+            for (RecipeGroup group : getEffectiveGroups()) {
+                for (Recipe r : group.recipes) {
+                    if (r.inputItems != null) {
+                        for (ItemStack stack : r.inputItems) {
+                            if (stack.item == item && items.get(item) < itemCapacity) {
+                                return true;
+                            }
                         }
                     }
                 }
@@ -239,16 +282,76 @@ public class RecipeCrafter extends GenericCrafter {
 
         @Override
         public boolean acceptLiquid(Building source, Liquid liquid) {
-            for (Recipe r : recipes) {
-                if (r.inputLiquids != null) {
-                    for (LiquidStack stack : r.inputLiquids) {
-                        if (stack.liquid == liquid && liquids.get(liquid) < liquidCapacity) {
-                            return true;
+            for (RecipeGroup group : getEffectiveGroups()) {
+                for (Recipe r : group.recipes) {
+                    if (r.inputLiquids != null) {
+                        for (LiquidStack stack : r.inputLiquids) {
+                            if (stack.liquid == liquid && liquids.get(liquid) < liquidCapacity) {
+                                return true;
+                            }
                         }
                     }
                 }
             }
             return false;
+        }
+
+        @Override
+        public void buildConfiguration(Table table) {
+            table.clear();
+            RecipeGroup[] groups = getEffectiveGroups();
+            if (groups.length == 0) return;
+
+            for (int i = 0; i < groups.length; i++) {
+                final int idx = i;
+                RecipeGroup group = groups[i];
+
+                // 获取图标
+                TextureRegion icon = group.icon;
+                if (icon == null && group.recipes.length > 0) {
+                    Recipe first = group.recipes[0];
+                    if (first.outputItem != null) icon = first.outputItem.item.uiIcon;
+                    else if (first.outputLiquid != null) icon = first.outputLiquid.liquid.uiIcon;
+                }
+                if (icon == null) icon = Core.atlas.find("error");
+
+                // 创建按钮（必须使用 Drawable + Styles + size + Runnable）
+                ImageButton btn = table.button(
+                        new TextureRegionDrawable(icon),
+                        Styles.defaulti,  // 或 Styles.flati
+                        40,              // 按钮默认尺寸，会被外部 .size(50f) 覆盖
+                        () -> configure(idx)
+                ).size(50f).pad(4f).get();
+
+                btn.setChecked(idx == selectedGroup);
+                table.add(Core.bundle.get("group." + group.name, group.name)).pad(4f);
+                table.row();
+            }
+        }
+
+        @Override
+        public Object config() {
+            return selectedGroup;
+        }
+
+        // 存档读写
+        @Override
+        public byte version() {
+            return 1;
+        }
+
+        @Override
+        public void write(Writes write) {
+            super.write(write);
+            write.i(selectedGroup);
+        }
+
+        @Override
+        public void read(Reads read, byte revision) {
+            super.read(read, revision);
+            if (revision >= 1) {
+                selectedGroup = read.i();
+            }
         }
     }
 }
