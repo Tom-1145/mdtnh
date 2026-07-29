@@ -1,12 +1,15 @@
 package mdtnh;
 
 
+import arc.Core;
 import arc.struct.*;
 import arc.util.*;
 import mindustry.content.Items;
 import mindustry.ctype.*;
 import mindustry.gen.*;
+import mindustry.graphics.Pal;
 import mindustry.type.*;
+import mindustry.ui.Bar;
 import mindustry.world.*;
 import mindustry.world.blocks.production.*;
 import mindustry.world.consumers.*;
@@ -30,8 +33,6 @@ public class RecipeCrafter extends GenericCrafter {
         this.drawer = new DrawDefault();         // 必须：指定绘制器
         // 必须：设置为可见（否则菜单中不会出现）
         this.buildVisibility = BuildVisibility.shown;
-
-        // 必须：设置建造需求（决定分类与材料）
         this.requirements(Category.crafting, ItemStack.with(Items.copper, 50));
         itemCapacity = 20;
         liquidCapacity = 20f;
@@ -76,7 +77,22 @@ public class RecipeCrafter extends GenericCrafter {
     @Override
     public void setBars() {
         super.setBars();
-        // 可添加自定义进度条等
+
+        addBar("progress", (MDTFactoryBuild build) -> new Bar(
+                // 进度条显示的文本：配方名 + 百分比
+                () -> {
+                    if (build.currentRecipe >= 0 && build.currentRecipe < recipes.length) {
+                        Recipe r = recipes[build.currentRecipe];
+                        String itemName = r.outputItem != null ? r.outputItem.item.localizedName : "???";
+                        return itemName + " " + (int)(build.progress * 100) + "%";
+                    }
+                    return Core.bundle.get("bar.no-recipe");
+                },
+                // 进度条颜色（可自定义，这里用原版制造进度颜色）
+                () -> Pal.accent,
+                // 进度值（0~1）
+                () -> build.progress
+        ));
     }
 
     @Override
@@ -102,7 +118,6 @@ public class RecipeCrafter extends GenericCrafter {
 
         @Override
         public void updateTile() {
-            Log.info("MDTFactoryBuild update running, currentRecipe: @, progress: @", currentRecipe, progress);
             // 若有正在进行的生产且配方仍有效则继续，否则尝试切换配方
             if (currentRecipe >= 0 && currentRecipe < recipes.length) {
                 Recipe r = recipes[currentRecipe];
@@ -135,7 +150,6 @@ public class RecipeCrafter extends GenericCrafter {
                 if (shouldConsume()) {
                     progress +=(1.0f / craftTime) *  delta() * efficiency;
                 }
-                Log.info("craftTime=@, delta=@, efficiency=@, progress=@", craftTime, delta(), efficiency, progress);
                 // 进度完成则执行生产
                 if (progress >= 1f) {
                     craft(active);
