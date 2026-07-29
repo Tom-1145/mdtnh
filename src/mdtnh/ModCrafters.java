@@ -32,8 +32,7 @@ public class ModCrafters {
         test = new RecipeCrafter("multi-factory"){{
             // 准备各组配方
             RecipeGroup groupMetals = new RecipeGroup(
-                    "metals",                     // 组名（用于本地化）
-                    Items.copper.uiIcon,          // 可选：组图标
+                    "Programming-circuit-1",          // 可选：组图标
                     new RecipeCrafter.Recipe[]{
                             RecipeCrafter.Recipe.items(
                                     new ItemStack[]{new ItemStack(Items.copper, 3), new ItemStack(Items.lead, 2)},
@@ -47,8 +46,7 @@ public class ModCrafters {
             );
 
             RecipeGroup groupElectronics = new RecipeGroup(
-                    "electronics",
-                    Items.silicon.uiIcon,
+                    "Programming-circuit-2",
                     new RecipeCrafter.Recipe[]{
                             RecipeCrafter.Recipe.items(
                                     new ItemStack[]{new ItemStack(Items.copper, 1), new ItemStack(Items.silicon, 2)},

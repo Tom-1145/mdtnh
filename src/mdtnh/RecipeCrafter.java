@@ -8,6 +8,7 @@ import arc.scene.ui.*;
 import arc.scene.ui.layout.*;
 import arc.util.*;
 import arc.util.io.*;          // 新增：导入 Reads 和 Writes
+import mindustry.Vars;
 import mindustry.content.*;
 import mindustry.gen.*;
 import mindustry.graphics.*;
@@ -19,6 +20,10 @@ import mindustry.world.meta.*;
 import mindustry.world.draw.*;
 
 public class RecipeCrafter extends GenericCrafter {
+
+    public TextureRegion[] Programming_circuit= new TextureRegion[24];
+
+
 
     /** 旧版配方列表（仅在没有分组时使用） */
     public Recipe[] recipes = new Recipe[]{};
@@ -50,18 +55,22 @@ public class RecipeCrafter extends GenericCrafter {
         });
     }
 
-    /** 获取最终使用的配方列表（兼容旧版 recipes） */
-    public RecipeGroup[] getEffectiveGroups() {
-        if (groups.length > 0) {
-            return groups;
-        } else if (recipes.length > 0) {
-            // 自动包装成单一默认组
-            return new RecipeGroup[]{
-                    new RecipeGroup("default", null, recipes)
-            };
-        } else {
-            return new RecipeGroup[]{};
+    @Override
+    public void load(){
+        super.load();
+        if (groups.length == 0 && recipes.length > 0) {
+            groups = new RecipeGroup[]{ new RecipeGroup("default", recipes) };
         }
+        for (int i = 0; i < groups.length; i++) {
+                groups[i].Texture_name = "programming-circuit"+String.valueOf(i+1);
+        }
+
+    }
+
+    /** 获取最终使用的配方列表（简化版，不再动态创建） */
+    public RecipeGroup[] getEffectiveGroups() {
+        // 直接返回 groups，因为 load() 中已确保 groups 包含所有所需组
+        return groups;
     }
 
     /** 配方 */
@@ -95,12 +104,13 @@ public class RecipeCrafter extends GenericCrafter {
     public static class RecipeGroup {
         public String name;       // 内部名，用于本地化
         public TextureRegion icon; // 可选图标
+        public String Texture_name;
         public Recipe[] recipes;
 
-        public RecipeGroup(String name, TextureRegion icon, Recipe[] recipes) {
+        public RecipeGroup(String name, Recipe[] recipes) {
             this.name = name;
-            this.icon = icon;
             this.recipes = recipes;
+            this.icon=null;
         }
     }
 
@@ -299,35 +309,84 @@ public class RecipeCrafter extends GenericCrafter {
         @Override
         public void buildConfiguration(Table table) {
             table.clear();
+
             RecipeGroup[] groups = getEffectiveGroups();
             if (groups.length == 0) return;
+
+            TextureRegion errorRegion = Core.atlas.find("error");
+
+            // 获取实际模组内部名，例如 mindustry-newhorizon
+            String modName = Vars.mods.getMod(MainMod.class).name;
 
             for (int i = 0; i < groups.length; i++) {
                 final int idx = i;
                 RecipeGroup group = groups[i];
 
-                // 获取图标
-                TextureRegion icon = group.icon;
-                if (icon == null && group.recipes.length > 0) {
-                    Recipe first = group.recipes[0];
-                    if (first.outputItem != null) icon = first.outputItem.item.uiIcon;
-                    else if (first.outputLiquid != null) icon = first.outputLiquid.liquid.uiIcon;
+                TextureRegion icon = null;
+
+                if (group.Texture_name != null && !group.Texture_name.isEmpty()) {
+                    // sprites/ 中的图片会被自动添加模组名前缀
+                    String atlasName = modName + "-" + group.Texture_name;
+                    TextureRegion loaded = Core.atlas.find(atlasName);
+
+                    if (loaded != null && loaded != errorRegion) {
+                        icon = loaded;
+                        Log.info(
+                                "Group @ loaded custom icon: @",
+                                i,
+                                atlasName
+                        );
+                    } else {
+                        Log.warn(
+                                "Group @ failed to load icon '@'; atlas has region: @",
+                                i,
+                                atlasName,
+                                Core.atlas.has(atlasName)
+                        );
+                    }
                 }
-                if (icon == null) icon = Core.atlas.find("error");
 
-                // 创建按钮（必须使用 Drawable + Styles + size + Runnable）
-                ImageButton btn = table.button(
-                        new TextureRegionDrawable(icon),
-                        Styles.defaulti,  // 或 Styles.flati
-                        40,              // 按钮默认尺寸，会被外部 .size(50f) 覆盖
-                        () -> configure(idx)
-                ).size(50f).pad(4f).get();
+                // 加载失败时使用第一条配方的输出图标
+                if (icon == null && group.recipes != null && group.recipes.length > 0) {
+                    Recipe first = group.recipes[0];
 
-                btn.setChecked(idx == selectedGroup);
-                table.add(Core.bundle.get("group." + group.name, group.name)).pad(4f);
+                    if (first.outputItem != null) {
+                        icon = first.outputItem.item.uiIcon;
+                    } else if (first.outputLiquid != null) {
+                        icon = first.outputLiquid.liquid.uiIcon;
+                    }
+                }
+
+                if (icon == null || icon == errorRegion) {
+                    icon = errorRegion;
+                }
+
+                group.icon = icon;
+
+                TextureRegionDrawable drawable = new TextureRegionDrawable(icon);
+
+                // 一定要复制 Style，不能直接修改共享的 Styles.defaulti
+                ImageButton.ImageButtonStyle style =
+                        new ImageButton.ImageButtonStyle(Styles.defaulti);
+
+                style.imageUp = drawable;
+                style.imageChecked = drawable;
+                style.imageDisabled = drawable;
+
+                ImageButton button = new ImageButton(style);
+
+                button.clicked(() -> configure(idx));
+                button.setChecked(idx == selectedGroup);
+
+                table.add(button).size(50f).pad(4f);
+                table.add(
+                        Core.bundle.get("group." + group.name, group.name)
+                ).pad(4f);
+
                 table.row();
             }
         }
+
 
         @Override
         public Object config() {
