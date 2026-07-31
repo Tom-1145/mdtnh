@@ -1,32 +1,18 @@
 package mdtnh;
 
-import arc.*;
-import arc.graphics.Color;
-import arc.util.*;
-import mindustry.game.EventType.*;
-import mindustry.mod.*;
-import mindustry.type.*;
-import mindustry.ui.dialogs.*;
-import mindustry.world.blocks.production.GenericCrafter;
-import  mindustry.content.Items;
-import  mindustry.content.Liquids;
-import mindustry.world.draw.*;
+import arc.util.Log;
+import mindustry.mod.Mod;
 
-import static mdtnh.ModCrafters.test;
-
-
-public class MainMod extends Mod{
-
-    public MainMod(){
-        Log.info("Loaded ExampleJavaMod constructor.");
-    }
-
+public class MainMod extends Mod {
     @Override
-    public void loadContent(){
-        ModItems.load();
-        ModLiquids.load();
-        ModCrafters.load(this);
-        Log.info("Test block registered: @", test == null ? "null" : test.name);
+    public void loadContent() {
+        Log.info("MainMod.loadContent() started");
+        Log.info("Loading ModItems...");
+        ModItems.load();          // 加载所有物品
+        Log.info("Loading ModLiquids...");
+        ModLiquids.load();        // 加载流体（如果有）
+        Log.info("Loading BasicFactory...");
+        BasicFactory.load();      // 加载工厂
+        Log.info("All content loaded.");
     }
-
 }
