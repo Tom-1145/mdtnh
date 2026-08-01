@@ -13,6 +13,7 @@ public class MainMod extends Mod {
         ModLiquids.load();        // 加载流体（如果有）
         Log.info("Loading BasicFactory...");
         BasicFactory.load();      // 加载工厂
+        ModCrafters.load();
         Log.info("All content loaded.");
     }
 }
