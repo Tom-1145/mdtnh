@@ -41,6 +41,9 @@ public class ModItems {
             items.put(metal + "_plate", new Item(metal + "-plate", base.cpy().mul(1.1f)) {{ cost = 1.8f; }});
             // 箔
             items.put(metal + "_foil", new Item(metal + "-foil", base.cpy().mul(1.3f)) {{ cost = 0.8f; }});
+
+            // 杆
+            items.put(metal + "_bar", new Item(metal + "-bar", base.cpy().mul(1.1f)) {{ cost = 1.8f; }});
         }
 
         // 特殊物品（可选）
