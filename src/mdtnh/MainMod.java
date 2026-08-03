@@ -7,13 +7,21 @@ public class MainMod extends Mod {
     @Override
     public void loadContent() {
         Log.info("MainMod.loadContent() started");
+
         Log.info("Loading ModItems...");
-        ModItems.load();          // 加载所有物品
+        ModItems.load();
+
         Log.info("Loading ModLiquids...");
-        ModLiquids.load();        // 加载流体（如果有）
+        ModLiquids.load();
+
         Log.info("Loading BasicFactory...");
-        BasicFactory.load();      // 加载工厂
+        BasicFactory.load();
         ModCrafters.load();
+
+        Log.info("Loading MDT discrete energy examples...");
+        MdtEnergyBlocks.load();
+        MdtEnergySystem.install();
+
         Log.info("All content loaded.");
     }
 }
