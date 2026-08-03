@@ -8,15 +8,44 @@ import mindustry.gen.Groups;
 
 import java.util.*;
 
+/**
+ * MDT 离散能源网络的全局结算器。
+ *
+ * <p>系统把时间划分为一秒，并把电流离散为持续一秒的 1A 电流包。
+ * 每个模拟秒依次执行以下步骤：</p>
+ *
+ * <ol>
+ *     <li>收集世界中全部 {@link MdtEnergyNode}；</li>
+ *     <li>按实际邻接关系划分互不连通的网络；</li>
+ *     <li>处理发电机和示例用电器的自动能量变化；</li>
+ *     <li>在每个网络内部按优先级和最小线损路径传输 1A 电流包。</li>
+ * </ol>
+ *
+ * <p>该系统独立于 Mindustry 原生 PowerGraph。所有能源建筑通过
+ * {@link MdtEnergyNode} 接口参与结算。</p>
+ */
 public final class MdtEnergySystem {
+
+    /** Mindustry 默认每秒包含的逻辑 tick 数。 */
     private static final double ticksPerSecond = 60d;
+
+    /** 浮点比较容差，用于避免临界值因计算误差被错误拒绝。 */
     private static final float epsilon = 0.0001f;
 
+    /** 最近一次已经完成结算的整数秒编号。 */
     private static long lastProcessedSecond = Long.MIN_VALUE;
+
+    /** 防止事件监听器被重复注册。 */
     private static boolean installed;
 
     private MdtEnergySystem() {}
 
+    /**
+     * 注册全局更新监听器。
+     *
+     * <p>该方法应在模组内容加载后调用一次。若游戏暂停、退出地图或尚未进入游戏，
+     * 秒计数会被重置，避免把菜单停留时间补算到下一局。</p>
+     */
     public static void install() {
         if (installed) return;
         installed = true;
@@ -28,11 +57,14 @@ public final class MdtEnergySystem {
             }
 
             long currentSecond = (long) (Vars.state.tick / ticksPerSecond);
+
+            // 首次进入地图或 tick 回退时只建立时间基准，不立即执行一次结算。
             if (lastProcessedSecond == Long.MIN_VALUE || currentSecond < lastProcessedSecond) {
                 lastProcessedSecond = currentSecond;
                 return;
             }
 
+            // 当单帧跨过多个整数秒时逐秒补算，保证结果不依赖帧率。
             while (lastProcessedSecond < currentSecond) {
                 lastProcessedSecond++;
                 stepOneSecond();
@@ -40,17 +72,29 @@ public final class MdtEnergySystem {
         });
     }
 
-    /** 统一连接判定：队伍相同且至少有一方是导线 */
+    /**
+     * 判断两个能源节点能否直接建立网络邻接边。
+     *
+     * <p>节点必须属于同一队伍，并且至少一端是导线。这样普通设备只能作为路径端点，
+     * 电流不会直接穿过一个设备再进入另一个设备。</p>
+     */
     public static boolean canConnect(MdtEnergyNode a, MdtEnergyNode b) {
         if (a == null || b == null) return false;
         return a.energyBuilding().team == b.energyBuilding().team
                 && (a.isEnergyWire() || b.isEnergyWire());
     }
 
+    /**
+     * 执行一个完整模拟秒的能源结算。
+     *
+     * <p>输入、输出和导线电流统计在每秒开始时清零，只表示当前结算秒的结果。
+     * 各连通分量独立处理，因此不同网络之间不会交换能量。</p>
+     */
     public static void stepOneSecond() {
         List<MdtEnergyNode> all = collectNodes();
         if (all.isEmpty()) return;
 
+        // 清除上一秒的电流测量值，储能量不受影响。
         for (MdtEnergyNode node : all) {
             EnergyState state = node.energyState();
             state.inputA = 0;
@@ -58,16 +102,24 @@ public final class MdtEnergySystem {
             state.currentA = 0;
         }
 
+        // 使用对象身份集合，避免建筑类自定义 equals/hashCode 影响节点去重。
         Set<MdtEnergyNode> visited = Collections.newSetFromMap(new IdentityHashMap<>());
 
         for (MdtEnergyNode root : all) {
             if (visited.contains(root)) continue;
+
             List<MdtEnergyNode> component = collectComponent(root, visited);
             applyAutomaticEnergyChange(component);
             routePackets(component);
         }
     }
 
+    /**
+     * 扫描世界中的全部能源节点。
+     *
+     * <p>按建筑位置排序可以让相同地图在相同状态下获得稳定的调度顺序，
+     * 降低集合遍历顺序造成的结果差异。</p>
+     */
     private static List<MdtEnergyNode> collectNodes() {
         List<MdtEnergyNode> result = new ArrayList<>();
         for (Building build : Groups.build) {
@@ -80,10 +132,10 @@ public final class MdtEnergySystem {
     }
 
     /**
-     * 返回与节点建筑边缘实际接触的能源节点。
+     * 返回与指定建筑整个占地边缘相邻的能源节点。
      *
-     * Building.proximity 按整个建筑占地维护邻接关系，能够正确处理 size > 1
-     * 的方块；不能使用 tile.nearbyBuild()，后者只从建筑锚点取四格邻居。
+     * <p>{@link Building#proximity} 覆盖建筑全部边缘，因此能够正确处理 2×2
+     * 或更大的能源工厂。结果会去重并按位置排序，供连通分量搜索和寻路共同使用。</p>
      */
     private static List<MdtEnergyNode> adjacentNodes(MdtEnergyNode node) {
         Building building = node.energyBuilding();
@@ -104,6 +156,13 @@ public final class MdtEnergySystem {
         return result;
     }
 
+    /**
+     * 使用广度优先搜索收集一个完整连通网络。
+     *
+     * @param root 搜索起点
+     * @param visited 全局已访问节点集合；本方法会把发现的节点加入其中
+     * @return 与起点相连的全部能源节点
+     */
     private static List<MdtEnergyNode> collectComponent(MdtEnergyNode root, Set<MdtEnergyNode> visited) {
         List<MdtEnergyNode> component = new ArrayList<>();
         ArrayDeque<MdtEnergyNode> queue = new ArrayDeque<>();
@@ -126,6 +185,13 @@ public final class MdtEnergySystem {
         return component;
     }
 
+    /**
+     * 处理不依赖网络传输的自动能量变化。
+     *
+     * <p>通用示例发电机每秒向自身缓存加入固定能量，示例用电器每秒从自身缓存
+     * 扣除固定能量。配方工厂和能源输入仓由各自建筑逻辑决定何时消耗能量，
+     * 因此不会在这里额外扣除。</p>
+     */
     private static void applyAutomaticEnergyChange(List<MdtEnergyNode> component) {
         for (MdtEnergyNode node : component) {
             EnergySpec spec = node.energySpec();
@@ -133,36 +199,43 @@ public final class MdtEnergySystem {
 
             if (spec.isWire()) continue;
 
-            // 发电机：增加能量；消费者：扣除能量（超出部分记录未满足）
             if (spec.role == EnergySpec.Role.generator) {
-                // 旧系统 generationJPerSecond 需要额外存储，这里使用自定义字段
-                // 为了兼容，暂时在 EnergySpec 里没有 generationJPerSecond，我们可以从原始 block 获取
-                // 由于 MdtEnergyBlock 的 generationJPerSecond 并未复制到 spec，需特殊处理
-                // 这里我们通过 node 的原始类型特殊处理，或者扩展 EnergySpec
-                // 简便做法：判断 node 是否为 MdtEnergyBlock.MdtEnergyBuild，从中读取
+                // 自动发电参数属于通用能源方块定义，其他节点类型默认不产生能量。
                 if (node instanceof MdtEnergyBlock.MdtEnergyBuild) {
                     MdtEnergyBlock.MdtEnergyBuild legacy = (MdtEnergyBlock.MdtEnergyBuild) node;
-                    state.energyJ = Math.min(spec.capacityJ, state.energyJ + legacy.energyBlock().generationJPerSecond);
+                    state.energyJ = Math.min(
+                            spec.capacityJ,
+                            state.energyJ + legacy.energyBlock().generationJPerSecond
+                    );
                 }
             }
 
             if (spec.role == EnergySpec.Role.consumer) {
+                // 自动耗电只应用于配置了 consumptionJPerSecond 的通用能源方块。
                 if (node instanceof MdtEnergyBlock.MdtEnergyBuild) {
                     MdtEnergyBlock.MdtEnergyBuild legacy = (MdtEnergyBlock.MdtEnergyBuild) node;
-                    float consumed = Math.min(state.energyJ, legacy.energyBlock().consumptionJPerSecond);
+                    float consumed = Math.min(
+                            state.energyJ,
+                            legacy.energyBlock().consumptionJPerSecond
+                    );
                     state.energyJ -= consumed;
-                    // 也可记录 unmet，但先不管
                 }
             }
-
-            // 对于 RecipeCrafter 或 EnergyInputHatch，它们没有自动消耗，所以无需处理
         }
     }
 
+    /**
+     * 在一个连通网络内反复传输 1A 电流包。
+     *
+     * <p>来源优先级为发电机高于电池；同类来源优先选择荷电比例较高者。
+     * 接收端优先级为消费者高于电池；同类接收端优先选择荷电比例较低者。
+     * 每次成功传输一个包后重新检查上限和容量，直到所有接收端都不能继续接收。</p>
+     */
     private static void routePackets(List<MdtEnergyNode> component) {
         List<MdtEnergyNode> sources = new ArrayList<>();
         List<MdtEnergyNode> sinks = new ArrayList<>();
 
+        // 导线只参加寻路，不作为能量来源或终点。
         for (MdtEnergyNode node : component) {
             EnergySpec spec = node.energySpec();
             if (spec.isWire()) continue;
@@ -178,23 +251,35 @@ public final class MdtEnergySystem {
         sources.sort((a, b) -> {
             EnergySpec sa = a.energySpec();
             EnergySpec sb = b.energySpec();
+
             int priA = sa.role == EnergySpec.Role.generator ? 0 : 1;
             int priB = sb.role == EnergySpec.Role.generator ? 0 : 1;
             if (priA != priB) return Integer.compare(priA, priB);
-            int socComp = Float.compare(b.energyState().energyJ / Math.max(1, sb.capacityJ),
-                    a.energyState().energyJ / Math.max(1, sa.capacityJ));
-            return socComp != 0 ? socComp : Integer.compare(a.energyBuilding().pos(), b.energyBuilding().pos());
+
+            int socComp = Float.compare(
+                    b.energyState().energyJ / Math.max(1, sb.capacityJ),
+                    a.energyState().energyJ / Math.max(1, sa.capacityJ)
+            );
+            return socComp != 0
+                    ? socComp
+                    : Integer.compare(a.energyBuilding().pos(), b.energyBuilding().pos());
         });
 
         sinks.sort((a, b) -> {
             EnergySpec sa = a.energySpec();
             EnergySpec sb = b.energySpec();
+
             int priA = sa.role == EnergySpec.Role.consumer ? 0 : 1;
             int priB = sb.role == EnergySpec.Role.consumer ? 0 : 1;
             if (priA != priB) return Integer.compare(priA, priB);
-            int socComp = Float.compare(a.energyState().energyJ / Math.max(1, sa.capacityJ),
-                    b.energyState().energyJ / Math.max(1, sb.capacityJ));
-            return socComp != 0 ? socComp : Integer.compare(a.energyBuilding().pos(), b.energyBuilding().pos());
+
+            int socComp = Float.compare(
+                    a.energyState().energyJ / Math.max(1, sa.capacityJ),
+                    b.energyState().energyJ / Math.max(1, sb.capacityJ)
+            );
+            return socComp != 0
+                    ? socComp
+                    : Integer.compare(a.energyBuilding().pos(), b.energyBuilding().pos());
         });
 
         for (MdtEnergyNode sink : sinks) {
@@ -202,6 +287,8 @@ public final class MdtEnergySystem {
             do {
                 moved = false;
                 if (!canReceive(sink)) break;
+
+                // 每次从最高优先级的可用来源尝试发送一个包。
                 for (MdtEnergyNode source : sources) {
                     if (!canSupply(source, sink)) continue;
                     if (transferOneAmp(source, sink)) {
@@ -213,24 +300,44 @@ public final class MdtEnergySystem {
         }
     }
 
+    /**
+     * 判断来源是否有资格向指定接收端发送下一个 1A 包。
+     *
+     * <p>来源必须有至少一个额定电压对应的能量包、尚未达到输出电流上限。
+     * 发电机可向消费者或电池供电；电池只向消费者放电，避免电池之间循环倒能。</p>
+     */
     private static boolean canSupply(MdtEnergyNode source, MdtEnergyNode sink) {
         EnergySpec srcSpec = source.energySpec();
         EnergyState srcState = source.energyState();
 
-        if (source == sink || srcState.outputA >= srcSpec.maxOutputA || srcState.energyJ + epsilon < srcSpec.voltageV)
+        if (source == sink
+                || srcState.outputA >= srcSpec.maxOutputA
+                || srcState.energyJ + epsilon < srcSpec.voltageV)
             return false;
 
         if (srcSpec.role == EnergySpec.Role.generator) return true;
 
-        return srcSpec.role == EnergySpec.Role.battery && sink.energySpec().role == EnergySpec.Role.consumer;
+        return srcSpec.role == EnergySpec.Role.battery
+                && sink.energySpec().role == EnergySpec.Role.consumer;
     }
 
+    /**
+     * 判断接收端是否尚有输入电流配额和储能空间。
+     */
     private static boolean canReceive(MdtEnergyNode sink) {
         EnergySpec spec = sink.energySpec();
         EnergyState state = sink.energyState();
-        return state.inputA < spec.maxInputA && state.energyJ < spec.capacityJ - epsilon;
+        return state.inputA < spec.maxInputA
+                && state.energyJ < spec.capacityJ - epsilon;
     }
 
+    /**
+     * 尝试沿最小线损路径传输一个持续一秒的 1A 电流包。
+     *
+     * <p>来源支出 {@code srcSpec.voltageV} 焦耳；接收端获得“来源电压减去路径压降”
+     * 焦耳；差值视为导线损耗。若路径不存在、到达电压非正、接收端过压或容量不足，
+     * 整个包都会被拒绝，不产生部分传输。</p>
+     */
     private static boolean transferOneAmp(MdtEnergyNode source, MdtEnergyNode sink) {
         Path path = findPath(source, sink);
         if (path == null) return false;
@@ -245,11 +352,19 @@ public final class MdtEnergySystem {
         EnergyState sinkState = sink.energyState();
         if (sinkState.energyJ + arrivalVoltage > sinkSpec.capacityJ + epsilon) return false;
 
-        source.energyState().energyJ = Math.max(0f, source.energyState().energyJ - srcSpec.voltageV);
-        sinkState.energyJ = Math.min(sinkSpec.capacityJ, sinkState.energyJ + arrivalVoltage);
+        source.energyState().energyJ = Math.max(
+                0f,
+                source.energyState().energyJ - srcSpec.voltageV
+        );
+        sinkState.energyJ = Math.min(
+                sinkSpec.capacityJ,
+                sinkState.energyJ + arrivalVoltage
+        );
+
         source.energyState().outputA++;
         sinkState.inputA++;
 
+        // 路径上的每根导线都通过了同一个 1A 包。
         for (MdtEnergyNode wire : path.wires) {
             wire.energyState().currentA++;
         }
@@ -257,10 +372,17 @@ public final class MdtEnergySystem {
         return true;
     }
 
+    /**
+     * 使用 Dijkstra 算法寻找来源到目标的最低总压降路径。
+     *
+     * <p>只有来源和目标可以是普通设备，中间节点必须是导线。达到载流上限的导线
+     * 不参与本次寻路，因此后续电流包可以自动改走仍有容量的其他路径。</p>
+     */
     private static Path findPath(MdtEnergyNode source, MdtEnergyNode target) {
         Map<MdtEnergyNode, Float> distance = new HashMap<>();
         Map<MdtEnergyNode, MdtEnergyNode> previous = new HashMap<>();
         Set<MdtEnergyNode> settled = new HashSet<>();
+
         PriorityQueue<PathState> queue = new PriorityQueue<>(
                 Comparator.comparingDouble((PathState s) -> s.distance)
                         .thenComparingInt(s -> s.node.energyBuilding().pos())
@@ -272,9 +394,11 @@ public final class MdtEnergySystem {
         while (!queue.isEmpty()) {
             PathState state = queue.poll();
             MdtEnergyNode current = state.node;
+
             if (!settled.add(current)) continue;
             if (current == target) break;
 
+            // 普通设备不能作为路径中继点。
             if (current != source && !current.isEnergyWire()) continue;
 
             for (MdtEnergyNode neighbor : adjacentNodes(current)) {
@@ -285,9 +409,12 @@ public final class MdtEnergySystem {
                     if (neighbor.energyState().currentA >= wireSpec.maxWireCurrentA) continue;
                 }
 
-                float addedLoss = neighbor.isEnergyWire() ? neighbor.energySpec().wireLossV : 0f;
+                float addedLoss = neighbor.isEnergyWire()
+                        ? neighbor.energySpec().wireLossV
+                        : 0f;
                 float newDist = state.distance + addedLoss;
                 Float oldDist = distance.get(neighbor);
+
                 if (oldDist == null || newDist + epsilon < oldDist) {
                     distance.put(neighbor, newDist);
                     previous.put(neighbor, current);
@@ -299,6 +426,7 @@ public final class MdtEnergySystem {
         Float totalLoss = distance.get(target);
         if (totalLoss == null) return null;
 
+        // 沿前驱表反向恢复路径，并只记录实际承担电流的导线节点。
         List<MdtEnergyNode> wires = new ArrayList<>();
         MdtEnergyNode cursor = target;
         while (cursor != source) {
@@ -306,22 +434,27 @@ public final class MdtEnergySystem {
             cursor = previous.get(cursor);
             if (cursor == null) return null;
         }
+
         Collections.reverse(wires);
         return new Path(totalLoss, wires);
     }
 
+    /** 优先队列中的 Dijkstra 搜索状态。 */
     private static class PathState {
         final MdtEnergyNode node;
         final float distance;
+
         PathState(MdtEnergyNode node, float distance) {
             this.node = node;
             this.distance = distance;
         }
     }
 
+    /** 一条已找到的传输路径及其总压降。 */
     private static class Path {
         final float lossV;
         final List<MdtEnergyNode> wires;
+
         Path(float lossV, List<MdtEnergyNode> wires) {
             this.lossV = lossV;
             this.wires = wires;
