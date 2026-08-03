@@ -1,6 +1,8 @@
 package mdtnh;
 
 import arc.util.Log;
+import mdtnh.energy.MdtEnergyBlocks;
+import mdtnh.energy.MdtEnergySystem;
 import mindustry.mod.Mod;
 
 public class MainMod extends Mod {
@@ -15,7 +17,6 @@ public class MainMod extends Mod {
         ModLiquids.load();
 
         Log.info("Loading BasicFactory...");
-        BasicFactory.load();
         ModCrafters.load();
 
         Log.info("Loading MDT discrete energy examples...");

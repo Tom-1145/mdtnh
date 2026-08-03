@@ -1,11 +1,9 @@
-package mdtnh;
+package mdtnh.energy;
 
 import mindustry.content.Items;
 import mindustry.type.Category;
 import mindustry.type.ItemStack;
 import mindustry.world.meta.BuildVisibility;
-
-import mdtnh.MdtEnergyBlock.EnergyRole;
 
 /** Registers the four example blocks. */
 public final class MdtEnergyBlocks {
