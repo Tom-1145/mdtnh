@@ -46,7 +46,7 @@ public class EnergyState {
     /**
      * 从缓存中全额扣除指定能量。
      *
-     * <p>该操作具有原子性：能量不足时不会进行部分扣除。</p>
+     * <p>能量不足时不会进行部分扣除。</p>
      *
      * @param amountJ 需要消耗的能量，单位为焦耳
      * @return 成功扣除或请求量非正数时返回 {@code true}；能量不足时返回 {@code false}
