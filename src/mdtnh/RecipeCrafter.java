@@ -84,6 +84,8 @@ public class RecipeCrafter extends GenericCrafter {
         update = true;
         solid = true;
         hasItems = true;
+        // 工厂可能包含液体输入/输出配方，始终创建液体模块。
+        hasLiquids = true;
         buildType = MDTFactoryBuild::new;
         drawer = new DrawDefault();
         buildVisibility = BuildVisibility.shown;
@@ -142,8 +144,8 @@ public class RecipeCrafter extends GenericCrafter {
     public static class Recipe {
         public ItemStack[] inputItems;
         public LiquidStack[] inputLiquids;
-        public ItemStack outputItem;
-        public LiquidStack outputLiquid;
+        public ItemStack[] outputItems;
+        public LiquidStack[] outputLiquids;
         /** 完成一次配方所需的基础 tick 数。 */
         public float craftTime;
 
@@ -151,16 +153,16 @@ public class RecipeCrafter extends GenericCrafter {
         public float energyPerCraftJ;
 
         public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
-                      ItemStack outputItem, LiquidStack outputLiquid, float craftTime) {
-            this(inputItems, inputLiquids, outputItem, outputLiquid, craftTime, 0f);
+                      ItemStack[] outputItems, LiquidStack[] outputLiquids, float craftTime) {
+            this(inputItems, inputLiquids, outputItems, outputLiquids, craftTime, 0f);
         }
 
         public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
-                      ItemStack outputItem, LiquidStack outputLiquid, float craftTime, float energyPerCraftJ) {
+                      ItemStack[] outputItems, LiquidStack[] outputLiquids, float craftTime, float energyPerCraftJ) {
             this.inputItems = inputItems;
             this.inputLiquids = inputLiquids;
-            this.outputItem = outputItem;
-            this.outputLiquid = outputLiquid;
+            this.outputItems = outputItems;
+            this.outputLiquids = outputLiquids;
             this.craftTime = craftTime;
             this.energyPerCraftJ = energyPerCraftJ;
         }
@@ -176,15 +178,37 @@ public class RecipeCrafter extends GenericCrafter {
             return this;
         }
 
-        /** 创建只有物品输入和物品输出的配方。 */
+        /** 创建只有物品输入和单物品输出的配方。 */
         public static Recipe items(ItemStack[] in, ItemStack out, float time) {
+            return new Recipe(in, new LiquidStack[]{},
+                    out == null ? null : new ItemStack[]{out}, null, time);
+        }
+
+        /** 创建只有物品输入和多种物品输出的配方。 */
+        public static Recipe items(ItemStack[] in, ItemStack[] out, float time) {
             return new Recipe(in, new LiquidStack[]{}, out, null, time);
         }
 
-        /** 创建同时支持物品与液体输入输出的配方。 */
+        /** 创建同时支持物品与液体输入、多种物品与多种液体输出的配方。 */
+        public static Recipe withLiquid(ItemStack[] in, LiquidStack[] liqIn,
+                                        ItemStack[] out, LiquidStack[] liqOut, float time) {
+            return new Recipe(in, liqIn, out, liqOut, time);
+        }
+
+        /** 创建同时支持物品与液体输入、单物品与单液体输出的配方。 */
         public static Recipe withLiquid(ItemStack[] in, LiquidStack[] liqIn,
                                         ItemStack out, LiquidStack liqOut, float time) {
-            return new Recipe(in, liqIn, out, liqOut, time);
+            return new Recipe(in, liqIn,
+                    out == null ? null : new ItemStack[]{out},
+                    liqOut == null ? null : new LiquidStack[]{liqOut},
+                    time);
+        }
+
+        /** @return 用于状态条显示的默认产物名称；没有产物时返回 null。 */
+        public String primaryOutputName() {
+            if (outputItems != null && outputItems.length > 0) return outputItems[0].item.localizedName;
+            if (outputLiquids != null && outputLiquids.length > 0) return outputLiquids[0].liquid.localizedName;
+            return null;
         }
     }
 
@@ -265,8 +289,8 @@ public class RecipeCrafter extends GenericCrafter {
                         String groupName = Core.bundle.get("group." + group.name, group.name);
                         if (build.currentRecipe >= 0 && build.currentRecipe < group.recipes.length) {
                             Recipe r = group.recipes[build.currentRecipe];
-                            String itemName = r.outputItem != null ? r.outputItem.item.localizedName :
-                                    (r.outputLiquid != null ? r.outputLiquid.liquid.localizedName : "???");
+                            String itemName = r.primaryOutputName();
+                            if (itemName == null) itemName = "???";
                             return groupName + " - " + itemName + " " + (int)(build.progress * 100) + "%";
                         }
                         return groupName + " - 空闲";
@@ -292,13 +316,17 @@ public class RecipeCrafter extends GenericCrafter {
                 String groupName = Core.bundle.get("group." + group.name, group.name);
                 table.add("[accent]" + groupName + "[]").padTop(8).colspan(2).left().row();
                 for (Recipe r : group.recipes) {
-                    if (r.outputItem != null) {
-                        table.image(r.outputItem.item.uiIcon).size(24);
-                        table.add(r.outputItem.item.localizedName + " x" + r.outputItem.amount).left().padLeft(4).row();
+                    if (r.outputItems != null) {
+                        for (ItemStack out : r.outputItems) {
+                            table.image(out.item.uiIcon).size(24);
+                            table.add(out.item.localizedName + " x" + out.amount).left().padLeft(4).row();
+                        }
                     }
-                    if (r.outputLiquid != null) {
-                        table.image(r.outputLiquid.liquid.uiIcon).size(24);
-                        table.add(r.outputLiquid.liquid.localizedName + " " + r.outputLiquid.amount + "单位").left().padLeft(4).row();
+                    if (r.outputLiquids != null) {
+                        for (LiquidStack out : r.outputLiquids) {
+                            table.image(out.liquid.uiIcon).size(24);
+                            table.add(out.liquid.localizedName + " " + out.amount + "单位").left().padLeft(4).row();
+                        }
                     }
                 }
             }
@@ -383,8 +411,16 @@ public class RecipeCrafter extends GenericCrafter {
             // 持续尝试输出库存中的所有可能产物，避免切换配方组后旧产物滞留。
             for (RecipeGroup group : groups) {
                 for (Recipe r : group.recipes) {
-                    if (r.outputItem != null && items.has(r.outputItem.item)) dump(r.outputItem.item);
-                    if (r.outputLiquid != null && liquids.get(r.outputLiquid.liquid) > 0.001f) dumpLiquid(r.outputLiquid.liquid);
+                    if (r.outputItems != null) {
+                        for (ItemStack out : r.outputItems) {
+                            if (items.has(out.item)) dump(out.item);
+                        }
+                    }
+                    if (r.outputLiquids != null) {
+                        for (LiquidStack out : r.outputLiquids) {
+                            if (liquids.get(out.liquid) > 0.001f) dumpLiquid(out.liquid);
+                        }
+                    }
                 }
             }
 
@@ -434,8 +470,12 @@ public class RecipeCrafter extends GenericCrafter {
                 if (progress >= 1f) {
                     craft(active);
                     progress %= 1f;
-                    if (active.outputItem != null) dump(active.outputItem.item);
-                    if (active.outputLiquid != null) dumpLiquid(active.outputLiquid.liquid);
+                    if (active.outputItems != null) {
+                        for (ItemStack out : active.outputItems) dump(out.item);
+                    }
+                    if (active.outputLiquids != null) {
+                        for (LiquidStack out : active.outputLiquids) dumpLiquid(out.liquid);
+                    }
 
                     if (!hasAllMaterials(active) || outputFull(active)) {
                         currentRecipe = -1;
@@ -456,8 +496,18 @@ public class RecipeCrafter extends GenericCrafter {
             if (recipe.inputLiquids != null) {
                 for (LiquidStack stack : recipe.inputLiquids) liquids.remove(stack.liquid, stack.amount);
             }
-            if (recipe.outputItem != null) offload(recipe.outputItem.item);
-            if (recipe.outputLiquid != null) handleLiquid(this, recipe.outputLiquid.liquid, recipe.outputLiquid.amount);
+            if (recipe.outputItems != null) {
+                // 按产物数量逐个 offload，尊重多物品输出的 amount。
+                for (ItemStack stack : recipe.outputItems) {
+                    for (int i = 0; i < stack.amount; i++) offload(stack.item);
+                }
+            }
+            if (recipe.outputLiquids != null) {
+                // 直接写入液体模块，绕开 acceptLiquid（产物液体通常不在输入配方中）。
+                for (LiquidStack stack : recipe.outputLiquids) {
+                    liquids.add(stack.liquid, stack.amount);
+                }
+            }
         }
 
         /** 判断内部物品和液体模块是否包含配方要求的全部原料。 */
@@ -477,8 +527,16 @@ public class RecipeCrafter extends GenericCrafter {
          * <p>该判断按当前产物类型检查已有数量，不预留完整产出数量。</p>
          */
         private boolean outputFull(Recipe r) {
-            if (r.outputItem != null && items.get(r.outputItem.item) >= itemCapacity) return true;
-            if (r.outputLiquid != null && liquids.get(r.outputLiquid.liquid) >= liquidCapacity) return true;
+            if (r.outputItems != null) {
+                for (ItemStack stack : r.outputItems) {
+                    if (items.get(stack.item) >= itemCapacity) return true;
+                }
+            }
+            if (r.outputLiquids != null) {
+                for (LiquidStack stack : r.outputLiquids) {
+                    if (liquids.get(stack.liquid) >= liquidCapacity) return true;
+                }
+            }
             return false;
         }
 
@@ -553,8 +611,11 @@ public class RecipeCrafter extends GenericCrafter {
 
                 if (icon == null && group.recipes != null && group.recipes.length > 0) {
                     Recipe first = group.recipes[0];
-                    if (first.outputItem != null) icon = first.outputItem.item.uiIcon;
-                    else if (first.outputLiquid != null) icon = first.outputLiquid.liquid.uiIcon;
+                    if (first.outputItems != null && first.outputItems.length > 0) {
+                        icon = first.outputItems[0].item.uiIcon;
+                    } else if (first.outputLiquids != null && first.outputLiquids.length > 0) {
+                        icon = first.outputLiquids[0].liquid.uiIcon;
+                    }
                 }
 
                 if (icon == null || icon == errorRegion) icon = errorRegion;

@@ -13,6 +13,8 @@ import mdtnh.hatch.EnergyInputHatch;
 import mdtnh.hatch.Hatch;
 import mdtnh.hatch.ItemInputHatch;
 import mdtnh.hatch.ItemOutputHatch;
+import mdtnh.hatch.LiquidInputHatch;
+import mdtnh.hatch.LiquidOutputHatch;
 import mindustry.Vars;
 import mindustry.entities.units.BuildPlan;
 import mindustry.gen.*;
@@ -51,8 +53,14 @@ public class MultiblockStructer extends Block {
         /** 完成一次生产需要从所有输入仓合计取得的物品。 */
         public ItemStack[] inputItems;
 
-        /** 完成一次生产后写入输出仓的物品。 */
-        public ItemStack outputItem;
+        /** 完成一次生产需要从所有液体输入仓合计取得的液体。 */
+        public LiquidStack[] inputLiquids;
+
+        /** 完成一次生产后写入物品输出仓的物品。 */
+        public ItemStack[] outputItems;
+
+        /** 完成一次生产后写入液体输出仓的液体。 */
+        public LiquidStack[] outputLiquids;
 
         /** 完成一次生产所需的基础 tick 数。 */
         public float craftTime;
@@ -60,13 +68,18 @@ public class MultiblockStructer extends Block {
         /** 完成一次生产所需的总能量，单位为焦耳。 */
         public float energyPerCraftJ;
 
-        public Recipe(ItemStack[] inputItems, ItemStack outputItem, float craftTime) {
-            this(inputItems, outputItem, craftTime, 0f);
+        public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
+                      ItemStack[] outputItems, LiquidStack[] outputLiquids, float craftTime) {
+            this(inputItems, inputLiquids, outputItems, outputLiquids, craftTime, 0f);
         }
 
-        public Recipe(ItemStack[] inputItems, ItemStack outputItem, float craftTime, float energyPerCraftJ) {
+        public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
+                      ItemStack[] outputItems, LiquidStack[] outputLiquids,
+                      float craftTime, float energyPerCraftJ) {
             this.inputItems = inputItems;
-            this.outputItem = outputItem;
+            this.inputLiquids = inputLiquids;
+            this.outputItems = outputItems;
+            this.outputLiquids = outputLiquids;
             this.craftTime = craftTime;
             this.energyPerCraftJ = energyPerCraftJ;
         }
@@ -82,47 +95,64 @@ public class MultiblockStructer extends Block {
             return this;
         }
 
-        /** 创建一条物品输入、物品输出配方。 */
+        /** 创建一条物品输入、单物品输出配方。 */
         public static Recipe items(ItemStack[] in, ItemStack out, float time) {
-            return new Recipe(in, out, time);
+            return new Recipe(in, null, out == null ? null : new ItemStack[]{out}, null, time);
+        }
+
+        /** 创建一条物品输入、多种物品输出配方。 */
+        public static Recipe items(ItemStack[] in, ItemStack[] out, float time) {
+            return new Recipe(in, null, out, null, time);
+        }
+
+        /** 创建同时包含物品与液体输入、多种物品与多种液体输出的配方。 */
+        public static Recipe withLiquid(ItemStack[] in, LiquidStack[] liqIn,
+                                        ItemStack[] out, LiquidStack[] liqOut, float time) {
+            return new Recipe(in, liqIn, out, liqOut, time);
+        }
+
+        /** @return 用于状态条显示的默认产物名称；没有产物时返回 null。 */
+        public String primaryOutputName() {
+            if (outputItems != null && outputItems.length > 0) return outputItems[0].item.localizedName;
+            if (outputLiquids != null && outputLiquids.length > 0) return outputLiquids[0].liquid.localizedName;
+            return null;
         }
 
         /**
          * 创建按指定并行数缩放后的独立配方副本。
          *
-         * <p>不会修改原配方中的 ItemStack。并行检测应当是只读操作，
+         * <p>不会修改原配方中的 ItemStack 或 LiquidStack。并行检测应当是只读操作，
          * 否则每次检测都会永久改变后续生产所需的物品数量。</p>
          */
         public Recipe times(int count) {
             int multiplier = Math.max(0, count);
 
-            ItemStack[] scaledInputs;
-            if (inputItems == null) {
-                scaledInputs = null;
-            } else {
-                scaledInputs = new ItemStack[inputItems.length];
-                for (int i = 0; i < inputItems.length; i++) {
-                    ItemStack stack = inputItems[i];
-                    scaledInputs[i] = new ItemStack(
-                            stack.item,
-                            safeMultiply(stack.amount, multiplier)
-                    );
-                }
-            }
-
-            ItemStack scaledOutput = outputItem == null
-                    ? null
-                    : new ItemStack(
-                    outputItem.item,
-                    safeMultiply(outputItem.amount, multiplier)
-            );
-
             return new Recipe(
-                    scaledInputs,
-                    scaledOutput,
+                    scaleItems(inputItems, multiplier),
+                    scaleLiquids(inputLiquids, multiplier),
+                    scaleItems(outputItems, multiplier),
+                    scaleLiquids(outputLiquids, multiplier),
                     craftTime,
                     energyPerCraftJ * multiplier
             );
+        }
+
+        private static ItemStack[] scaleItems(ItemStack[] stacks, int multiplier) {
+            if (stacks == null) return null;
+            ItemStack[] scaled = new ItemStack[stacks.length];
+            for (int i = 0; i < stacks.length; i++) {
+                scaled[i] = new ItemStack(stacks[i].item, safeMultiply(stacks[i].amount, multiplier));
+            }
+            return scaled;
+        }
+
+        private static LiquidStack[] scaleLiquids(LiquidStack[] stacks, int multiplier) {
+            if (stacks == null) return null;
+            LiquidStack[] scaled = new LiquidStack[stacks.length];
+            for (int i = 0; i < stacks.length; i++) {
+                scaled[i] = new LiquidStack(stacks[i].liquid, stacks[i].amount * multiplier);
+            }
+            return scaled;
         }
 
         private static int safeMultiply(int amount, int multiplier) {
@@ -268,7 +298,8 @@ public class MultiblockStructer extends Block {
                     String groupName = Core.bundle.get("group." + group.name, group.name);
                     if (build.currentRecipe >= 0 && build.currentRecipe < group.recipes.length) {
                         Recipe r = group.recipes[build.currentRecipe];
-                        String itemName = r.outputItem != null ? r.outputItem.item.localizedName : "???";
+                        String itemName = r.primaryOutputName();
+                        if (itemName == null) itemName = "???";
                         return groupName + " - " + itemName +"*"+ build.currentParallel +" " + (int)(build.progress * 100) + "%";
                     }
                     return groupName + " - 空闲";
@@ -306,6 +337,8 @@ public class MultiblockStructer extends Block {
         public pos[] currentInputs;
         public pos[] currentOutputs;
         public pos[] currentEnergyInputs;
+        public pos[] currentLiquidInputs;
+        public pos[] currentLiquidOutputs;
 
         /**
          * 检查核心周围是否满足结构定义。
@@ -327,6 +360,8 @@ public class MultiblockStructer extends Block {
                 List<pos> foundInputs = new ArrayList<>();
                 List<pos> foundOutputs = new ArrayList<>();
                 List<pos> foundEnergyInputs = new ArrayList<>();
+                List<pos> foundLiquidInputs = new ArrayList<>();
+                List<pos> foundLiquidOutputs = new ArrayList<>();
 
                 for (Map.Entry<pos, Integer> ps : now.struct.entrySet()) {
                     int dx = ps.getKey().x;
@@ -354,6 +389,10 @@ public class MultiblockStructer extends Block {
                             foundOutputs.add(new pos(dx, dy));
                         } else if (blockThere instanceof EnergyInputHatch) {
                             foundEnergyInputs.add(new pos(dx, dy));
+                        } else if (blockThere instanceof LiquidInputHatch) {
+                            foundLiquidInputs.add(new pos(dx, dy));
+                        } else if (blockThere instanceof LiquidOutputHatch) {
+                            foundLiquidOutputs.add(new pos(dx, dy));
                         }
                     }
                 }
@@ -365,6 +404,8 @@ public class MultiblockStructer extends Block {
                     currentInputs = foundInputs.toArray(new pos[0]);
                     currentOutputs = foundOutputs.toArray(new pos[0]);
                     currentEnergyInputs = foundEnergyInputs.toArray(new pos[0]);
+                    currentLiquidInputs = foundLiquidInputs.toArray(new pos[0]);
+                    currentLiquidOutputs = foundLiquidOutputs.toArray(new pos[0]);
                     break;
                 }
             }
@@ -372,6 +413,8 @@ public class MultiblockStructer extends Block {
                 currentInputs = null;
                 currentOutputs = null;
                 currentEnergyInputs = null;
+                currentLiquidInputs = null;
+                currentLiquidOutputs = null;
             }
         }
 
@@ -479,6 +522,55 @@ public class MultiblockStructer extends Block {
         }
 
         /**
+         * 按液体输入仓坐标顺序取出指定液体。
+         *
+         * @return 实际取出的数量；各输入仓合计不足时可能小于 amount
+         */
+        private float takeLiquidFromInputs(Liquid liquid, float amount) {
+            LevelStruct lvl = currentLevel();
+            if (lvl == null || currentLiquidInputs == null) return 0f;
+
+            float remaining = amount;
+            for (pos offset : currentLiquidInputs) {
+                if (remaining <= 0.001f) break;
+                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                if (t != null && t.build != null && t.build.block.hasLiquids) {
+                    float canTake = Math.min(t.build.liquids.get(liquid), remaining);
+                    if (canTake > 0.001f) {
+                        t.build.liquids.remove(liquid, canTake);
+                        remaining -= canTake;
+                    }
+                }
+            }
+            return amount - remaining;
+        }
+
+        /**
+         * 按液体输出仓坐标顺序写入产物液体。
+         *
+         * @return 实际写入数量；总空间不足时可能小于 amount
+         */
+        private float putLiquidToOutputs(Liquid liquid, float amount) {
+            LevelStruct lvl = currentLevel();
+            if (lvl == null || currentLiquidOutputs == null) return 0f;
+
+            float remaining = amount;
+            for (pos offset : currentLiquidOutputs) {
+                if (remaining <= 0.001f) break;
+                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                if (t != null && t.build != null && t.build.block.hasLiquids) {
+                    float space = t.build.block.liquidCapacity - t.build.liquids.get(liquid);
+                    float canPut = Math.min(space, remaining);
+                    if (canPut > 0.001f) {
+                        t.build.liquids.add(liquid, canPut);
+                        remaining -= canPut;
+                    }
+                }
+            }
+            return amount - remaining;
+        }
+
+        /**
          * 判断指定并行数所需的全部原料是否已经存在。
          *
          * <p>使用 long 计算“单次用量 × 并行数”，不创建临时配方，也不修改
@@ -486,28 +578,59 @@ public class MultiblockStructer extends Block {
          */
         private boolean inputsHaveForParallel(Recipe recipe, int parallelCount) {
             if (parallelCount <= 0) return false;
-            if (recipe.inputItems == null || recipe.inputItems.length == 0) return true;
-            if (currentLevel() == null || currentInputs == null) return false;
+            if (currentLevel() == null) return false;
 
-            Map<Item, Long> needed = new HashMap<>();
-            for (ItemStack stack : recipe.inputItems) {
-                long required = (long) stack.amount * parallelCount;
-                needed.merge(stack.item, required, Long::sum);
-            }
+            boolean needItems = recipe.inputItems != null && recipe.inputItems.length > 0;
+            boolean needLiquids = recipe.inputLiquids != null && recipe.inputLiquids.length > 0;
+            if (!needItems && !needLiquids) return true;
+            if (needItems && currentInputs == null) return false;
+            if (needLiquids && currentLiquidInputs == null) return false;
 
-            Map<Item, Long> available = new HashMap<>();
-            for (pos offset : currentInputs) {
-                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
-                if (t == null || t.build == null || !t.build.block.hasItems) continue;
+            if (needItems) {
+                Map<Item, Long> needed = new HashMap<>();
+                for (ItemStack stack : recipe.inputItems) {
+                    long required = (long) stack.amount * parallelCount;
+                    needed.merge(stack.item, required, Long::sum);
+                }
 
-                for (Item item : needed.keySet()) {
-                    available.merge(item, (long) t.build.items.get(item), Long::sum);
+                Map<Item, Long> available = new HashMap<>();
+                for (pos offset : currentInputs) {
+                    Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                    if (t == null || t.build == null || !t.build.block.hasItems) continue;
+
+                    for (Item item : needed.keySet()) {
+                        available.merge(item, (long) t.build.items.get(item), Long::sum);
+                    }
+                }
+
+                for (Map.Entry<Item, Long> entry : needed.entrySet()) {
+                    if (available.getOrDefault(entry.getKey(), 0L) < entry.getValue()) {
+                        return false;
+                    }
                 }
             }
 
-            for (Map.Entry<Item, Long> entry : needed.entrySet()) {
-                if (available.getOrDefault(entry.getKey(), 0L) < entry.getValue()) {
-                    return false;
+            if (needLiquids) {
+                Map<Liquid, Double> needed = new HashMap<>();
+                for (LiquidStack stack : recipe.inputLiquids) {
+                    double required = (double) stack.amount * parallelCount;
+                    needed.merge(stack.liquid, required, Double::sum);
+                }
+
+                Map<Liquid, Double> available = new HashMap<>();
+                for (pos offset : currentLiquidInputs) {
+                    Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                    if (t == null || t.build == null || !t.build.block.hasLiquids) continue;
+
+                    for (Liquid liquid : needed.keySet()) {
+                        available.merge(liquid, (double) t.build.liquids.get(liquid), Double::sum);
+                    }
+                }
+
+                for (Map.Entry<Liquid, Double> entry : needed.entrySet()) {
+                    if (available.getOrDefault(entry.getKey(), 0d) + 0.0001 < entry.getValue()) {
+                        return false;
+                    }
                 }
             }
             return true;
@@ -516,22 +639,47 @@ public class MultiblockStructer extends Block {
         /** 判断所有输出仓是否能容纳指定并行数产生的完整产物。 */
         private boolean outputsHaveSpaceForParallel(Recipe recipe, int parallelCount) {
             if (parallelCount <= 0) return false;
-            if (recipe.outputItem == null) return true;
-            if (currentLevel() == null || currentOutputs == null) return false;
+            if (currentLevel() == null) return false;
 
-            long requiredSpace = (long) recipe.outputItem.amount * parallelCount;
-            long totalSpace = 0L;
+            boolean needItems = recipe.outputItems != null && recipe.outputItems.length > 0;
+            boolean needLiquids = recipe.outputLiquids != null && recipe.outputLiquids.length > 0;
+            if (!needItems && !needLiquids) return true;
+            if (needItems && currentOutputs == null) return false;
+            if (needLiquids && currentLiquidOutputs == null) return false;
 
-            for (pos offset : currentOutputs) {
-                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
-                if (t != null && t.build != null && t.build.block.hasItems) {
-                    totalSpace += Math.max(
-                            0,
-                            t.build.block.itemCapacity - t.build.items.get(recipe.outputItem.item)
-                    );
+            if (needItems) {
+                for (ItemStack out : recipe.outputItems) {
+                    long requiredSpace = (long) out.amount * parallelCount;
+                    long totalSpace = 0L;
+
+                    for (pos offset : currentOutputs) {
+                        Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                        if (t != null && t.build != null && t.build.block.hasItems) {
+                            totalSpace += Math.max(0, t.build.block.itemCapacity - t.build.items.get(out.item));
+                        }
+                    }
+                    if (totalSpace < requiredSpace) return false;
                 }
             }
-            return totalSpace >= requiredSpace;
+
+            if (needLiquids) {
+                for (LiquidStack out : recipe.outputLiquids) {
+                    double requiredSpace = (double) out.amount * parallelCount;
+                    double totalSpace = 0d;
+
+                    for (pos offset : currentLiquidOutputs) {
+                        Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                        if (t != null && t.build != null && t.build.block.hasLiquids) {
+                            totalSpace += Math.max(
+                                    0,
+                                    t.build.block.liquidCapacity - t.build.liquids.get(out.liquid)
+                            );
+                        }
+                    }
+                    if (totalSpace + 0.0001 < requiredSpace) return false;
+                }
+            }
+            return true;
         }
 
         /** 判断某条配方能否以指定并行数完整结算。 */
@@ -715,17 +863,35 @@ public class MultiblockStructer extends Block {
                     }
 
                     // 原料和产物按本周期锁定的并行数一次性结算。
-                    for (ItemStack stack : active.inputItems) {
-                        takeFromInputs(
-                                stack.item,
-                                parallelAmount(stack.amount, currentParallel)
-                        );
+                    if (active.inputItems != null) {
+                        for (ItemStack stack : active.inputItems) {
+                            takeFromInputs(
+                                    stack.item,
+                                    parallelAmount(stack.amount, currentParallel)
+                            );
+                        }
                     }
 
-                    putToOutputs(
-                            active.outputItem.item,
-                            parallelAmount(active.outputItem.amount, currentParallel)
-                    );
+                    if (active.inputLiquids != null) {
+                        for (LiquidStack stack : active.inputLiquids) {
+                            takeLiquidFromInputs(stack.liquid, stack.amount * currentParallel);
+                        }
+                    }
+
+                    if (active.outputItems != null) {
+                        for (ItemStack stack : active.outputItems) {
+                            putToOutputs(
+                                    stack.item,
+                                    parallelAmount(stack.amount, currentParallel)
+                            );
+                        }
+                    }
+
+                    if (active.outputLiquids != null) {
+                        for (LiquidStack stack : active.outputLiquids) {
+                            putLiquidToOutputs(stack.liquid, stack.amount * currentParallel);
+                        }
+                    }
 
                     /*
                      * 一个周期结束后重新选择并行数。新补充的原料或新腾出的输出空间
@@ -772,7 +938,11 @@ public class MultiblockStructer extends Block {
 
                 if (icon == null && group.recipes != null && group.recipes.length > 0) {
                     Recipe first = group.recipes[0];
-                    if (first.outputItem != null) icon = first.outputItem.item.uiIcon;
+                    if (first.outputItems != null && first.outputItems.length > 0) {
+                        icon = first.outputItems[0].item.uiIcon;
+                    } else if (first.outputLiquids != null && first.outputLiquids.length > 0) {
+                        icon = first.outputLiquids[0].liquid.uiIcon;
+                    }
                 }
 
                 if (icon == null || icon == errorRegion) icon = errorRegion;

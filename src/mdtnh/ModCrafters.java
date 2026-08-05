@@ -4,6 +4,8 @@ import mdtnh.energy.EnergySpec;
 import mdtnh.hatch.EnergyInputHatch;
 import mdtnh.hatch.ItemInputHatch;
 import mdtnh.hatch.ItemOutputHatch;
+import mdtnh.hatch.LiquidInputHatch;
+import mdtnh.hatch.LiquidOutputHatch;
 import mdtnh.hatch.SteamInputHatch;
 import mindustry.content.Blocks;
 import mindustry.content.Items;
@@ -77,6 +79,26 @@ public class ModCrafters {
         ItemOutputHatch productOutputHatch = new ItemOutputHatch("product-output-hatch") {{
             localizedName = "通用输出仓";
             itemCapacity = 20;
+            requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
+        }};
+
+        /*
+         * 液体输入仓接受管道输入的原料液体，但不会主动输出，
+         * 多方块核心根据当前配方从其中取料。
+         */
+        LiquidInputHatch liquidInputHatch = new LiquidInputHatch("liquid-input-hatch") {{
+            localizedName = "液体输入仓";
+            liquidCapacity = 60f;
+            requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
+        }};
+
+        /*
+         * 液体输出仓由多方块核心直接写入产物液体，
+         * 其容量决定结构是否具备完整的液体输出空间。
+         */
+        LiquidOutputHatch liquidOutputHatch = new LiquidOutputHatch("liquid-output-hatch") {{
+            localizedName = "液体输出仓";
+            liquidCapacity = 60f;
             requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
         }};
 
@@ -157,8 +179,9 @@ public class ModCrafters {
                             RecipeCrafter.Recipe.withLiquid(
                                     new ItemStack[]{new ItemStack(Items.silicon, 3)},
                                     new LiquidStack[]{new LiquidStack(Liquids.water, 0.1f)},
-                                    new ItemStack(Items.surgeAlloy, 1),
-                                    null, 120f
+                                    new ItemStack[]{new ItemStack(Items.surgeAlloy, 1), new ItemStack(Items.metaglass, 1)},
+                                    new LiquidStack[]{new LiquidStack(Liquids.oil, 0.05f)},
+                                    120f
                             ).energy(500f)
                     }
             );
@@ -218,6 +241,8 @@ public class ModCrafters {
             Vector<Block> core = new Vector<>(); core.add(this);
             Vector<Block> in = new Vector<>(); in.add(copperInputHatch);
             Vector<Block> out = new Vector<>(); out.add(productOutputHatch);
+            Vector<Block> liqIn = new Vector<>(); liqIn.add(liquidInputHatch);
+            Vector<Block> liqOut = new Vector<>(); liqOut.add(liquidOutputHatch);
             Vector<Block> energy = new Vector<>();
             energy.add(energyInputHatch);
             energy.add(steamInputHatch);
@@ -229,6 +254,8 @@ public class ModCrafters {
             mapping.add(out);    // 类型 2：物品输出仓
             mapping.add(energy); // 类型 3：能源输入仓
             mapping.add(air);    // 类型 4：必须为空的结构槽位
+            mapping.add(liqIn);  // 类型 5：液体输入仓
+            mapping.add(liqOut); // 类型 6：液体输出仓
 
             /*
              * 所有坐标都以多方块核心 tile 为原点。
@@ -242,6 +269,13 @@ public class ModCrafters {
             level1.struct.put(new pos(0, 1), 2);
             level1.struct.put(new pos(0, -1), 4);
             level1.struct.put(new pos(2, 0), 3);
+            level1.struct.put(new pos(1, 1), 5);
+            level1.struct.put(new pos(-1, 1), 6);
+            /*
+               IO LI
+            II C  II EI
+               _  LO
+              */
 
             level1.Mapping = mapping;
             levels = new Vector<>();
@@ -255,19 +289,21 @@ public class ModCrafters {
                     new MultiblockStructer.RecipeGroup("smelting", new MultiblockStructer.Recipe[]{
                             MultiblockStructer.Recipe.items(
                                     new ItemStack[]{new ItemStack(Items.copper, 4), new ItemStack(Items.lead, 2)},
-                                    new ItemStack(Items.silicon, 2),
+                                    new ItemStack[]{new ItemStack(Items.silicon, 2)},
                                     180f
                             ).energy(360f),
-                            MultiblockStructer.Recipe.items(
+                            MultiblockStructer.Recipe.withLiquid(
                                     new ItemStack[]{new ItemStack(Items.titanium, 3), new ItemStack(Items.silicon, 2)},
-                                    new ItemStack(Items.surgeAlloy, 1),
+                                    new LiquidStack[]{new LiquidStack(Liquids.water, 30f)},
+                                    new ItemStack[]{new ItemStack(Items.surgeAlloy, 1), new ItemStack(Items.metaglass, 1)},
+                                    new LiquidStack[]{new LiquidStack(ModLiquids.steam, 10f)},
                                     240f
                             ).energy(720f)
                     }),
                     new MultiblockStructer.RecipeGroup("advanced", new MultiblockStructer.Recipe[]{
                             MultiblockStructer.Recipe.items(
                                     new ItemStack[]{new ItemStack(Items.surgeAlloy, 1), new ItemStack(Items.phaseFabric, 1)},
-                                    new ItemStack(Items.plastanium, 2),
+                                    new ItemStack[]{new ItemStack(Items.plastanium, 2)},
                                     300f
                             ).energy(1200f)
                     })
