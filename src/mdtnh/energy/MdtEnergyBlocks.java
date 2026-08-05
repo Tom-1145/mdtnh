@@ -1,5 +1,6 @@
 package mdtnh.energy;
 
+import mdtnh.energy.MdtEnergyBlock.EnergyRole;
 import mindustry.content.Items;
 import mindustry.type.Category;
 import mindustry.type.ItemStack;
@@ -31,14 +32,16 @@ public final class MdtEnergyBlocks {
     /** 创建并注册全部示例能源方块。 */
     public static void load() {
 
-        // 12V × 8A = 96J/s，因此自动发电量与最大输出能力相匹配。
+        // 发电机输出 18V；每秒产生 96J，因此持续输出能力受发电量和缓存共同限制。
         exampleGenerator = new MdtEnergyBlock("example-generator") {{
             localizedName = "示例发电机";
-            description = "每秒自动产生 96 J；以 12 V、最多 8 A 向相邻导线网络输出。";
+            description = "每秒自动产生 96 J；以 18 V、最多 8 A 向相邻导线网络输出。";
             fallbackRegion = "combustion-generator";
             role = EnergyRole.generator;
 
-            voltageV = 12f;
+            voltageV = 18f;
+            minInputVoltageV = 0f;
+            maxInputVoltageV = 0f;
             capacityJ = 2400f;
             initialEnergyFraction = 0f;
             generationJPerSecond = 96f;
@@ -64,6 +67,8 @@ public final class MdtEnergyBlocks {
 
             capacityJ = 0f;
             voltageV = 0f;
+            minInputVoltageV = 0f;
+            maxInputVoltageV = 0f;
             maxInputA = 0;
             maxOutputA = 0;
             maxWireCurrentA = 16;
@@ -82,11 +87,13 @@ public final class MdtEnergyBlocks {
         // 负载以满缓存开始，每秒先自动扣除 48J，再由网络尝试补充。
         exampleConsumer = new MdtEnergyBlock("example-consumer") {{
             localizedName = "示例用电器";
-            description = "相当于每秒自动减少 48 J 的 12 V 电池；每秒最多接收 6 A。";
+            description = "每秒自动减少 48 J；正常输入范围为 10~14 V，每秒最多接收 6 A。";
             fallbackRegion = "arc";
             role = EnergyRole.consumer;
 
             voltageV = 12f;
+            minInputVoltageV = 10f;
+            maxInputVoltageV = 14f;
             capacityJ = 600f;
             initialEnergyFraction = 1f;
             consumptionJPerSecond = 48f;
@@ -112,6 +119,8 @@ public final class MdtEnergyBlocks {
             role = EnergyRole.battery;
 
             voltageV = 12f;
+            minInputVoltageV = 10f;
+            maxInputVoltageV = 14f;
             capacityJ = 12000f;
             initialEnergyFraction = 0.25f;
             maxInputA = 10;

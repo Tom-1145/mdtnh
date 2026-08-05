@@ -15,7 +15,7 @@ import mindustry.ui.Bar;
  */
 public class EnergyInputHatch extends Hatch {
 
-    /** 所有该类型能源仓共享的额定电压、容量和输入输出上限。 */
+    /** 所有该类型能源仓共享的输出电压、输入电压区间、容量和电流上限。 */
     public final EnergySpec energySpec = new EnergySpec();
 
     public EnergyInputHatch(String name) {
@@ -28,6 +28,8 @@ public class EnergyInputHatch extends Hatch {
         // 作为纯输入端接入网络：允许充电，不允许主动向外部网络放电。
         energySpec.role = EnergySpec.Role.consumer;
         energySpec.voltageV = 12f;
+        energySpec.minInputVoltageV = 10f;
+        energySpec.maxInputVoltageV = 14f;
         energySpec.capacityJ = 2400f;
         energySpec.maxInputA = 16;
         energySpec.maxOutputA = 0;
@@ -47,6 +49,22 @@ public class EnergyInputHatch extends Hatch {
                     () -> "Energy: " + Math.round(build.energyState.energyJ) + " / " + Math.round(energySpec.capacityJ) + " J",
                     () -> Color.valueOf("ffd37f"),
                     () -> build.energyState.fraction(energySpec)
+            );
+        });
+
+        addBar("mdt-energy-input", raw -> {
+            EnergyInputHatchBuild build = (EnergyInputHatchBuild) raw;
+            return new Bar(
+                    () -> "Input: " + build.energyState.inputA + " A | "
+                            + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
+                            + " [" + energySpec.minInputVoltageV + "~"
+                            + energySpec.maxInputVoltageV + " V]"
+                            + (build.energyState.ignoredInputA > 0
+                            ? " | ignored " + build.energyState.ignoredInputA : ""),
+                    () -> Color.valueOf("84f491"),
+                    () -> energySpec.maxInputA <= 0
+                            ? 0f
+                            : Math.min(1f, build.energyState.inputA / (float) energySpec.maxInputA)
             );
         });
     }

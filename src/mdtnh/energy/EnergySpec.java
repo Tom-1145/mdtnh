@@ -29,12 +29,28 @@ public class EnergySpec {
     public Role role = Role.consumer;
 
     /**
-     * 节点额定电压，单位为伏特。
+     * 节点发送电流包时使用的输出电压，单位为伏特。
      *
-     * <p>发送一个持续一秒的 1A 离散电流包时，来源会支出
-     * {@code voltageV} 焦耳。对接收节点而言，该值同时作为最大安全输入电压。</p>
+     * <p>一个电流包表示 1A 持续一秒，因此发送一个包会从来源缓存扣除
+     * {@code voltageV} 焦耳。包经过导线后的到达电压等于该值减去路径总压降。</p>
      */
     public float voltageV = 12f;
+
+    /**
+     * 能够被节点正常接受的最低输入电压，单位为伏特。
+     *
+     * <p>到达电压严格小于该值时，电流包已经通过导线并消耗来源能量，
+     * 但接收端不会把它写入能源缓存。</p>
+     */
+    public float minInputVoltageV = 10f;
+
+    /**
+     * 能够被节点正常接受的最高输入电压，单位为伏特。
+     *
+     * <p>到达电压严格大于该值时，接收建筑会被摧毁。该判断发生在包已经完成
+     * 线路传输之后，因此来源能量和导线载流量不会回退。</p>
+     */
+    public float maxInputVoltageV = 14f;
 
     /**
      * 节点内部能够保存的最大能量，单位为焦耳。
@@ -74,5 +90,23 @@ public class EnergySpec {
     /** @return 当前规格是否表示导线节点。 */
     public boolean isWire() {
         return role == Role.wire;
+    }
+
+    /**
+     * 判断到达电压是否低于正常工作区间。
+     *
+     * @param inputVoltageV 到达节点的电压
+     */
+    public boolean isUndervoltage(float inputVoltageV) {
+        return inputVoltageV < minInputVoltageV;
+    }
+
+    /**
+     * 判断到达电压是否高于正常工作区间。
+     *
+     * @param inputVoltageV 到达节点的电压
+     */
+    public boolean isOvervoltage(float inputVoltageV) {
+        return inputVoltageV > maxInputVoltageV;
     }
 }

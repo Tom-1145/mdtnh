@@ -37,8 +37,14 @@ public class MdtEnergyBlock extends Block {
     /** 方块在能源网络中的角色。 */
     public EnergyRole role = EnergyRole.battery;
 
-    /** 额定电压，同时决定每个 1A 输出包从来源扣除的焦耳数。 */
+    /** 输出电压，同时决定每个 1A 输出包从来源扣除的焦耳数。 */
     public float voltageV = 12f;
+
+    /** 能够正常接收的最低输入电压；低于该值的包会被丢弃。 */
+    public float minInputVoltageV = 10f;
+
+    /** 能够正常接收的最高输入电压；高于该值的包会摧毁建筑。 */
+    public float maxInputVoltageV = 14f;
 
     /** 内部能源缓存容量，单位为焦耳。 */
     public float capacityJ = 1000f;
@@ -109,6 +115,8 @@ public class MdtEnergyBlock extends Block {
         spec = new EnergySpec();
         spec.role = convertRole(role);
         spec.voltageV = voltageV;
+        spec.minInputVoltageV = minInputVoltageV;
+        spec.maxInputVoltageV = maxInputVoltageV;
         spec.capacityJ = capacityJ;
         spec.maxInputA = maxInputA;
         spec.maxOutputA = maxOutputA;
@@ -170,7 +178,10 @@ public class MdtEnergyBlock extends Block {
                 MdtEnergyBuild energy = (MdtEnergyBuild) build;
                 int maximum = Math.max(1, Math.max(maxInputA, maxOutputA));
                 return new Bar(
-                        () -> "I/O: " + energy.nodeState.inputA + " A in, " + energy.nodeState.outputA + " A out",
+                        () -> "I/O: " + energy.nodeState.inputA + " A in, "
+                                + energy.nodeState.outputA + " A out | "
+                                + Math.round(energy.nodeState.lastInputVoltageV * 10f) / 10f + " V"
+                                + " [" + minInputVoltageV + "~" + maxInputVoltageV + " V]",
                         () -> Color.valueOf("84f491"),
                         () -> Math.min(1f, Math.max(energy.nodeState.inputA, energy.nodeState.outputA) / (float) maximum)
                 );

@@ -28,4 +28,17 @@ public interface MdtEnergyNode {
     default boolean isEnergyWire() {
         return energySpec().isWire();
     }
+
+    /**
+     * 处理超过最高输入电压的电流包。
+     *
+     * <p>默认行为是清空能源缓存并摧毁建筑。特殊设备可以重写该方法，
+     * 实现耐压保险、分阶段损坏或自定义爆炸效果，而无需改变全局寻路器。</p>
+     *
+     * @param inputVoltageV 实际到达建筑的电压
+     */
+    default void onOvervoltage(float inputVoltageV) {
+        energyState().energyJ = 0f;
+        energyBuilding().kill();
+    }
 }

@@ -100,6 +100,9 @@ public final class MdtEnergySystem {
             state.inputA = 0;
             state.outputA = 0;
             state.currentA = 0;
+            state.lastInputVoltageV = 0f;
+            state.ignoredInputA = 0;
+            state.overvoltageA = 0;
         }
 
         // 使用对象身份集合，避免建筑类自定义 equals/hashCode 影响节点去重。
@@ -229,7 +232,7 @@ public final class MdtEnergySystem {
      *
      * <p>来源优先级为发电机高于电池；同类来源优先选择荷电比例较高者。
      * 接收端优先级为消费者高于电池；同类接收端优先选择荷电比例较低者。
-     * 每次成功传输一个包后重新检查上限和容量，直到所有接收端都不能继续接收。</p>
+     * 每个已发送的包都会占用当秒输入输出额度；欠压包会被丢弃，过压包会摧毁接收端。</p>
      */
     private static void routePackets(List<MdtEnergyNode> component) {
         List<MdtEnergyNode> sources = new ArrayList<>();
@@ -311,6 +314,8 @@ public final class MdtEnergySystem {
         EnergyState srcState = source.energyState();
 
         if (source == sink
+                || source.energyBuilding().dead()
+                || sink.energyBuilding().dead()
                 || srcState.outputA >= srcSpec.maxOutputA
                 || srcState.energyJ + epsilon < srcSpec.voltageV)
             return false;
@@ -327,16 +332,26 @@ public final class MdtEnergySystem {
     private static boolean canReceive(MdtEnergyNode sink) {
         EnergySpec spec = sink.energySpec();
         EnergyState state = sink.energyState();
-        return state.inputA < spec.maxInputA
+        return !sink.energyBuilding().dead()
+                && state.inputA < spec.maxInputA
                 && state.energyJ < spec.capacityJ - epsilon;
     }
 
     /**
-     * 尝试沿最小线损路径传输一个持续一秒的 1A 电流包。
+     * 沿最小线损路径传输一个持续一秒的 1A 电流包。
      *
-     * <p>来源支出 {@code srcSpec.voltageV} 焦耳；接收端获得“来源电压减去路径压降”
-     * 焦耳；差值视为导线损耗。若路径不存在、到达电压非正、接收端过压或容量不足，
-     * 整个包都会被拒绝，不产生部分传输。</p>
+     * <p>只要路径存在，包就会离开发送端：来源扣除一个输出电压对应的能量，
+     * 导线增加载流统计，接收端增加输入电流统计。随后才根据到达电压处理结果：</p>
+     *
+     * <ul>
+     *     <li>低于最低输入电压：丢弃该包，不增加接收端缓存；</li>
+     *     <li>高于最高输入电压：清空缓存并摧毁接收建筑；</li>
+     *     <li>处于输入区间且容量足够：把到达电压对应的能量写入缓存；</li>
+     *     <li>处于输入区间但剩余容量不足：丢弃整个包，不进行部分接收。</li>
+     * </ul>
+     *
+     * <p>除了路径不存在之外，传输结果不会回退来源能量和线路电流。这保留了路径、
+     * 电流上限和容量边界，但不再由调度器提前保护设备免受欠压或过压。</p>
      */
     private static boolean transferOneAmp(MdtEnergyNode source, MdtEnergyNode sink) {
         Path path = findPath(source, sink);
@@ -344,31 +359,40 @@ public final class MdtEnergySystem {
 
         EnergySpec srcSpec = source.energySpec();
         EnergySpec sinkSpec = sink.energySpec();
-
-        float arrivalVoltage = srcSpec.voltageV - path.lossV;
-        if (arrivalVoltage <= epsilon) return false;
-        if (arrivalVoltage > sinkSpec.voltageV + epsilon) return false;
-
+        EnergyState sourceState = source.energyState();
         EnergyState sinkState = sink.energyState();
-        if (sinkState.energyJ + arrivalVoltage > sinkSpec.capacityJ + epsilon) return false;
 
-        source.energyState().energyJ = Math.max(
-                0f,
-                source.energyState().energyJ - srcSpec.voltageV
-        );
-        sinkState.energyJ = Math.min(
-                sinkSpec.capacityJ,
-                sinkState.energyJ + arrivalVoltage
-        );
+        // 线路损失可能超过来源电压；到达端电压最低按 0V 处理。
+        float arrivalVoltage = Math.max(0f, srcSpec.voltageV - path.lossV);
 
-        source.energyState().outputA++;
+        sourceState.energyJ = Math.max(0f, sourceState.energyJ - srcSpec.voltageV);
+        sourceState.outputA++;
+
         sinkState.inputA++;
+        sinkState.lastInputVoltageV = arrivalVoltage;
 
-        // 路径上的每根导线都通过了同一个 1A 包。
+        // 路径上的每根导线都已经通过了这个 1A 包。
         for (MdtEnergyNode wire : path.wires) {
             wire.energyState().currentA++;
         }
 
+        if (sinkSpec.isUndervoltage(arrivalVoltage)) {
+            sinkState.ignoredInputA++;
+            return true;
+        }
+
+        if (sinkSpec.isOvervoltage(arrivalVoltage)) {
+            sinkState.overvoltageA++;
+            sink.onOvervoltage(arrivalVoltage);
+            return true;
+        }
+
+        if (sinkState.energyJ + arrivalVoltage > sinkSpec.capacityJ + epsilon) {
+            sinkState.ignoredInputA++;
+            return true;
+        }
+
+        sinkState.energyJ += arrivalVoltage;
         return true;
     }
 

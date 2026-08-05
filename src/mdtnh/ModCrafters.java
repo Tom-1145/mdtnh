@@ -82,6 +82,8 @@ public class ModCrafters {
             requirements(Category.power, ItemStack.with(Items.copper, 50, Items.silicon, 20));
 
             energySpec.voltageV = 12f;
+            energySpec.minInputVoltageV = 10f;
+            energySpec.maxInputVoltageV = 14f;
             energySpec.capacityJ = 4800f;
             energySpec.maxInputA = 32;
         }};
@@ -98,6 +100,8 @@ public class ModCrafters {
             // 工厂只接收电力，不向网络提供能量。
             energySpec.role = EnergySpec.Role.consumer;
             energySpec.voltageV = 12f;
+            energySpec.minInputVoltageV = 10f;
+            energySpec.maxInputVoltageV = 14f;
             energySpec.capacityJ = 720f;
             energySpec.maxInputA = 12;
             energySpec.maxOutputA = 0;

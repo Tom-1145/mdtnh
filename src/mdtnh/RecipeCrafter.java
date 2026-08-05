@@ -21,6 +21,8 @@ import mindustry.world.blocks.production.*;
 import mindustry.world.meta.*;
 import mindustry.world.draw.*;
 
+import java.util.*;
+
 /**
  * 支持配方分组、物品/液体输入输出和 MDT 能源消耗的单方块工厂。
  *
@@ -42,7 +44,7 @@ public class RecipeCrafter extends GenericCrafter {
     /** 配方分组；配置界面通过组索引切换当前可执行配方集合。 */
     public RecipeGroup[] groups = new RecipeGroup[]{};
 
-    /** 该工厂类型共享的额定电压、内部容量和输入输出电流上限。 */
+    /** 该工厂类型共享的输出电压、输入电压区间、内部容量和电流上限。 */
     public final EnergySpec energySpec = new EnergySpec();
 
     /** 新放置工厂的初始能源缓存比例；通常为 0，由外部网络充电。 */
@@ -50,9 +52,11 @@ public class RecipeCrafter extends GenericCrafter {
 
     public RecipeCrafter(String name) {
         super(name);
-        // 默认作为只接收能量的 12V 消费节点，具体内容注册时可覆盖这些参数。
+        // 默认作为只接收能量的消费者，正常输入范围为 10V 到 14V。
         energySpec.role = EnergySpec.Role.consumer;
         energySpec.voltageV = 12f;
+        energySpec.minInputVoltageV = 10f;
+        energySpec.maxInputVoltageV = 14f;
         energySpec.capacityJ = 360f;
         energySpec.maxInputA = 6;
         energySpec.maxOutputA = 0;
@@ -176,6 +180,12 @@ public class RecipeCrafter extends GenericCrafter {
             this.recipes = recipes;
             this.icon = null;
         }
+
+        public void addRecipe(Recipe recipe){
+            List<Recipe> x = new ArrayList<>(List.of(recipes));
+            x.add(recipe);
+            recipes=x.toArray(new Recipe[0]);
+        }
     }
 
     /**
@@ -198,7 +208,12 @@ public class RecipeCrafter extends GenericCrafter {
             int maximum = Math.max(1, Math.max(energySpec.maxInputA, energySpec.maxOutputA));
             return new Bar(
                     () -> "I/O: " + build.energyState.inputA + " A in, "
-                            + build.energyState.outputA + " A out",
+                            + build.energyState.outputA + " A out | "
+                            + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
+                            + " [" + energySpec.minInputVoltageV + "~"
+                            + energySpec.maxInputVoltageV + " V]"
+                            + (build.energyState.ignoredInputA > 0
+                            ? " | ignored " + build.energyState.ignoredInputA : ""),
                     () -> Color.valueOf("84f491"),
                     () -> Math.min(1f,
                             Math.max(build.energyState.inputA, build.energyState.outputA)

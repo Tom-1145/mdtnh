@@ -33,6 +33,27 @@ public class EnergyState {
     public int currentA;
 
     /**
+     * 上一个模拟秒最后一个到达该节点的电流包电压。
+     *
+     * <p>该值只用于状态显示和调试，不参与存档。</p>
+     */
+    public float lastInputVoltageV;
+
+    /**
+     * 上一个模拟秒因输入电压过低或容量不足而被丢弃的电流包数量。
+     *
+     * <p>包虽然没有进入缓存，但仍会计入 {@link #inputA}、来源输出和导线电流。</p>
+     */
+    public int ignoredInputA;
+
+    /**
+     * 上一个模拟秒触发过压摧毁的电流包数量。
+     *
+     * <p>通常最多为 1，因为第一个过压包就会摧毁接收建筑。</p>
+     */
+    public int overvoltageA;
+
+    /**
      * 判断缓存能否一次性支付指定能量。
      *
      * @param amountJ 需要支付的能量，单位为焦耳
