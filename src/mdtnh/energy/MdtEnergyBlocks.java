@@ -35,11 +35,11 @@ public final class MdtEnergyBlocks {
         // 发电机输出 18V；每秒产生 96J，因此持续输出能力受发电量和缓存共同限制。
         exampleGenerator = new MdtEnergyBlock("example-generator") {{
             localizedName = "示例发电机";
-            description = "每秒自动产生 96 J；以 18 V、最多 8 A 向相邻导线网络输出。";
+            description = "每秒自动产生 96 J；以 12 V、最多 8 A 向相邻导线网络输出。";
             fallbackRegion = "combustion-generator";
             role = EnergyRole.generator;
 
-            voltageV = 18f;
+            voltageV = 12f;
             minInputVoltageV = 0f;
             maxInputVoltageV = 0f;
             capacityJ = 2400f;

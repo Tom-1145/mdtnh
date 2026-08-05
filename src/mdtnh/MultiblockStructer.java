@@ -39,6 +39,8 @@ public class MultiblockStructer extends Block {
     /** 核心方块使用的图集区域。 */
     public TextureRegion region;
 
+    /** 并行数 */
+    public int parallel=8;
     /**
      * 多方块结构可执行的一条物品配方。
      *
@@ -83,6 +85,49 @@ public class MultiblockStructer extends Block {
         /** 创建一条物品输入、物品输出配方。 */
         public static Recipe items(ItemStack[] in, ItemStack out, float time) {
             return new Recipe(in, out, time);
+        }
+
+        /**
+         * 创建按指定并行数缩放后的独立配方副本。
+         *
+         * <p>不会修改原配方中的 ItemStack。并行检测应当是只读操作，
+         * 否则每次检测都会永久改变后续生产所需的物品数量。</p>
+         */
+        public Recipe times(int count) {
+            int multiplier = Math.max(0, count);
+
+            ItemStack[] scaledInputs;
+            if (inputItems == null) {
+                scaledInputs = null;
+            } else {
+                scaledInputs = new ItemStack[inputItems.length];
+                for (int i = 0; i < inputItems.length; i++) {
+                    ItemStack stack = inputItems[i];
+                    scaledInputs[i] = new ItemStack(
+                            stack.item,
+                            safeMultiply(stack.amount, multiplier)
+                    );
+                }
+            }
+
+            ItemStack scaledOutput = outputItem == null
+                    ? null
+                    : new ItemStack(
+                    outputItem.item,
+                    safeMultiply(outputItem.amount, multiplier)
+            );
+
+            return new Recipe(
+                    scaledInputs,
+                    scaledOutput,
+                    craftTime,
+                    energyPerCraftJ * multiplier
+            );
+        }
+
+        private static int safeMultiply(int amount, int multiplier) {
+            long result = (long) amount * multiplier;
+            return result >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
         }
     }
 
@@ -151,6 +196,7 @@ public class MultiblockStructer extends Block {
         config(Integer.class, (MultiblockStructerBuilding build, Integer groupIdx) -> {
             build.selectedGroup = groupIdx;
             build.currentRecipe = -1;
+            build.currentParallel = 0;
             build.progress = 0f;
         });
     }
@@ -223,7 +269,7 @@ public class MultiblockStructer extends Block {
                     if (build.currentRecipe >= 0 && build.currentRecipe < group.recipes.length) {
                         Recipe r = group.recipes[build.currentRecipe];
                         String itemName = r.outputItem != null ? r.outputItem.item.localizedName : "???";
-                        return groupName + " - " + itemName + " " + (int)(build.progress * 100) + "%";
+                        return groupName + " - " + itemName +"*"+ build.currentParallel +" " + (int)(build.progress * 100) + "%";
                     }
                     return groupName + " - 空闲";
                 },
@@ -253,6 +299,8 @@ public class MultiblockStructer extends Block {
 
         /** 当前组中正在执行的配方索引；-1 表示没有可执行配方。 */
         public int currentRecipe = -1;
+
+        public int currentParallel = 0;
 
         /** 舱室位置 */
         public pos[] currentInputs;
@@ -431,6 +479,96 @@ public class MultiblockStructer extends Block {
         }
 
         /**
+         * 判断指定并行数所需的全部原料是否已经存在。
+         *
+         * <p>使用 long 计算“单次用量 × 并行数”，不创建临时配方，也不修改
+         * 原配方中的 ItemStack。</p>
+         */
+        private boolean inputsHaveForParallel(Recipe recipe, int parallelCount) {
+            if (parallelCount <= 0) return false;
+            if (recipe.inputItems == null || recipe.inputItems.length == 0) return true;
+            if (currentLevel() == null || currentInputs == null) return false;
+
+            Map<Item, Long> needed = new HashMap<>();
+            for (ItemStack stack : recipe.inputItems) {
+                long required = (long) stack.amount * parallelCount;
+                needed.merge(stack.item, required, Long::sum);
+            }
+
+            Map<Item, Long> available = new HashMap<>();
+            for (pos offset : currentInputs) {
+                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                if (t == null || t.build == null || !t.build.block.hasItems) continue;
+
+                for (Item item : needed.keySet()) {
+                    available.merge(item, (long) t.build.items.get(item), Long::sum);
+                }
+            }
+
+            for (Map.Entry<Item, Long> entry : needed.entrySet()) {
+                if (available.getOrDefault(entry.getKey(), 0L) < entry.getValue()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /** 判断所有输出仓是否能容纳指定并行数产生的完整产物。 */
+        private boolean outputsHaveSpaceForParallel(Recipe recipe, int parallelCount) {
+            if (parallelCount <= 0) return false;
+            if (recipe.outputItem == null) return true;
+            if (currentLevel() == null || currentOutputs == null) return false;
+
+            long requiredSpace = (long) recipe.outputItem.amount * parallelCount;
+            long totalSpace = 0L;
+
+            for (pos offset : currentOutputs) {
+                Tile t = Vars.world.tile(tile.x + offset.x, tile.y + offset.y);
+                if (t != null && t.build != null && t.build.block.hasItems) {
+                    totalSpace += Math.max(
+                            0,
+                            t.build.block.itemCapacity - t.build.items.get(recipe.outputItem.item)
+                    );
+                }
+            }
+            return totalSpace >= requiredSpace;
+        }
+
+        /** 判断某条配方能否以指定并行数完整结算。 */
+        private boolean canRunParallel(Recipe recipe, int parallelCount) {
+            return inputsHaveForParallel(recipe, parallelCount)
+                    && outputsHaveSpaceForParallel(recipe, parallelCount);
+        }
+
+        /**
+         * 在 1 到方块并行上限之间寻找当前可执行的最大并行数。
+         *
+         * <p>原料需求和输出空间都随并行数单调增加，因此可以使用二分查找。</p>
+         */
+        private int findMaximumParallel(Recipe recipe) {
+            int low = 1;
+            int high = Math.max(0, parallel);
+            int best = 0;
+
+            while (low <= high) {
+                int middle = low + ((high - low) >> 1);
+                if (canRunParallel(recipe, middle)) {
+                    best = middle;
+                    low = middle + 1;
+                } else {
+                    high = middle - 1;
+                }
+            }
+            return best;
+        }
+
+        /** 将单次物品数量安全换算为并行结算数量。 */
+        private int parallelAmount(int amount, int parallelCount) {
+            long result = (long) amount * parallelCount;
+            return result >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) result;
+        }
+
+        /**
          * 汇总同队能源输入仓当前可用的能量。
          *
          * <p>坐标上的建筑只要实现 {@link MdtEnergyNode} 就可作为能源来源，
@@ -502,6 +640,7 @@ public class MultiblockStructer extends Block {
                 if (!Molded || level != oldLevel) {
                     progress = 0f;
                     currentRecipe = -1;
+                    currentParallel = 0;
                 }
             }
 
@@ -512,19 +651,23 @@ public class MultiblockStructer extends Block {
             Recipe[] activeRecipes = groups[selectedGroup].recipes;
             if (activeRecipes.length == 0) return;
 
-            // 当前配方失去原料条件或完整输出空间后，重新选择配方。
+            // 当前配方连一并行都无法完成时，重新选择配方。
             if (currentRecipe >= 0 && currentRecipe < activeRecipes.length) {
                 Recipe active = activeRecipes[currentRecipe];
-                if (!inputsHave(active.inputItems) || outputsFullFor(active.outputItem.item, active.outputItem.amount))
+                if (!canRunParallel(active, 1)) {
                     currentRecipe = -1;
+                    currentParallel = 0;
+                }
             }
 
-            // 按配方数组顺序选择第一条当前可执行的配方。
+            // 按配方数组顺序选择第一条至少能以一并行执行的配方。
             if (currentRecipe == -1) {
                 for (int i = 0; i < activeRecipes.length; i++) {
-                    Recipe r = activeRecipes[i];
-                    if (inputsHave(r.inputItems) && !outputsFullFor(r.outputItem.item, r.outputItem.amount)) {
+                    Recipe recipe = activeRecipes[i];
+                    int maximum = findMaximumParallel(recipe);
+                    if (maximum > 0) {
                         currentRecipe = i;
+                        currentParallel = maximum;
                         progress = 0f;
                         break;
                     }
@@ -534,35 +677,65 @@ public class MultiblockStructer extends Block {
             if (currentRecipe >= 0 && currentRecipe < activeRecipes.length) {
                 Recipe active = activeRecipes[currentRecipe];
 
+                /*
+                 * 并行数在一个生产周期内保持不变，使该周期的能耗、原料和产物倍率一致。
+                 * 若当前并行数因库存或输出空间变化而失效，则重新计算并重启本周期。
+                 */
+                if (currentParallel <= 0 || !canRunParallel(active, currentParallel)) {
+                    int maximum = findMaximumParallel(active);
+                    if (maximum <= 0) {
+                        currentRecipe = -1;
+                        currentParallel = 0;
+                        progress = 0f;
+                        return;
+                    }
+
+                    currentParallel = maximum;
+                    progress = 0f;
+                }
+
                 float workTicks = delta();
 
-                // 本 tick 能耗按当前工作量占完整配方工时的比例计算。
-                float requiredEnergyJ = active.energyPerCraftJ * workTicks / active.craftTime;
+                // 本 tick 能耗 = 单次配方能耗 × 工作比例 × 当前并行数。
+                float requiredEnergyJ = active.energyPerCraftJ
+                        * workTicks
+                        / active.craftTime
+                        * currentParallel;
 
                 if (consumeEnergyJ(requiredEnergyJ)) {
                     progress += workTicks / active.craftTime;
                 }
 
-                // 完成时再次验证资源，避免生产过程中结构内容变化导致非法结算。
+                // 完成时再次验证锁定的并行数，避免舱室内容在生产期间被外部改变。
                 if (progress >= 1f) {
-                    if (!inputsHave(active.inputItems) || outputsFullFor(active.outputItem.item, active.outputItem.amount)) {
+                    if (!canRunParallel(active, currentParallel)) {
                         progress = 0f;
-                        currentRecipe = -1;
+                        currentParallel = 0;
                         return;
                     }
 
-                    // 原料和产物只在完整生产周期完成时结算。
-                    for (ItemStack stack : active.inputItems)
-                        takeFromInputs(stack.item, stack.amount);
+                    // 原料和产物按本周期锁定的并行数一次性结算。
+                    for (ItemStack stack : active.inputItems) {
+                        takeFromInputs(
+                                stack.item,
+                                parallelAmount(stack.amount, currentParallel)
+                        );
+                    }
 
-                    putToOutputs(active.outputItem.item, active.outputItem.amount);
+                    putToOutputs(
+                            active.outputItem.item,
+                            parallelAmount(active.outputItem.amount, currentParallel)
+                    );
 
-                    progress %= 1f;
-
-                    if (!inputsHave(active.inputItems) || outputsFullFor(active.outputItem.item, active.outputItem.amount))
-                        currentRecipe = -1;
+                    /*
+                     * 一个周期结束后重新选择并行数。新补充的原料或新腾出的输出空间
+                     * 可以从下一周期开始提高并行，而不会中途改变当前周期倍率。
+                     */
+                    progress = 0f;
+                    currentParallel = 0;
                 }
             } else {
+                currentParallel = 0;
                 progress = 0f;
             }
         }
