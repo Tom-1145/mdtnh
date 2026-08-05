@@ -24,6 +24,16 @@ public interface MdtEnergyNode {
     /** @return 该建筑实例独立保存的能源状态。 */
     EnergyState energyState();
 
+    /**
+     * 指示该节点是否允许加入 MDT 导线网络。
+     *
+     * <p>蒸汽驱动设备仍可复用 {@link EnergyState} 作为内部能量缓存，但会返回
+     * {@code false}，从而不会被全局电网收集、寻路或绘制连接线。</p>
+     */
+    default boolean canConnectToElectricGrid() {
+        return true;
+    }
+
     /** @return 当前节点是否只承担导线传输职责。 */
     default boolean isEnergyWire() {
         return energySpec().isWire();

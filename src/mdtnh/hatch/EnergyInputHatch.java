@@ -18,6 +18,9 @@ public class EnergyInputHatch extends Hatch {
     /** 所有该类型能源仓共享的输出电压、输入电压区间、容量和电流上限。 */
     public final EnergySpec energySpec = new EnergySpec();
 
+    /** 是否允许该仓室被 MDT 导线网络识别和充电。 */
+    public boolean electricGridEnabled = true;
+
     public EnergyInputHatch(String name) {
         super(name);
 
@@ -52,21 +55,23 @@ public class EnergyInputHatch extends Hatch {
             );
         });
 
-        addBar("mdt-energy-input", raw -> {
-            EnergyInputHatchBuild build = (EnergyInputHatchBuild) raw;
-            return new Bar(
-                    () -> "Input: " + build.energyState.inputA + " A | "
-                            + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
-                            + " [" + energySpec.minInputVoltageV + "~"
-                            + energySpec.maxInputVoltageV + " V]"
-                            + (build.energyState.ignoredInputA > 0
-                            ? " | ignored " + build.energyState.ignoredInputA : ""),
-                    () -> Color.valueOf("84f491"),
-                    () -> energySpec.maxInputA <= 0
-                            ? 0f
-                            : Math.min(1f, build.energyState.inputA / (float) energySpec.maxInputA)
-            );
-        });
+        if (electricGridEnabled) {
+            addBar("mdt-energy-input", raw -> {
+                EnergyInputHatchBuild build = (EnergyInputHatchBuild) raw;
+                return new Bar(
+                        () -> "Input: " + build.energyState.inputA + " A | "
+                                + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
+                                + " [" + energySpec.minInputVoltageV + "~"
+                                + energySpec.maxInputVoltageV + " V]"
+                                + (build.energyState.ignoredInputA > 0
+                                ? " | ignored " + build.energyState.ignoredInputA : ""),
+                        () -> Color.valueOf("84f491"),
+                        () -> energySpec.maxInputA <= 0
+                                ? 0f
+                                : Math.min(1f, build.energyState.inputA / (float) energySpec.maxInputA)
+                );
+            });
+        }
     }
 
     /**
@@ -93,6 +98,11 @@ public class EnergyInputHatch extends Hatch {
         @Override
         public EnergyState energyState() {
             return energyState;
+        }
+
+        @Override
+        public boolean canConnectToElectricGrid() {
+            return electricGridEnabled;
         }
 
         /**

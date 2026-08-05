@@ -4,6 +4,7 @@ import mdtnh.energy.EnergySpec;
 import mdtnh.hatch.EnergyInputHatch;
 import mdtnh.hatch.ItemInputHatch;
 import mdtnh.hatch.ItemOutputHatch;
+import mdtnh.hatch.SteamInputHatch;
 import mindustry.content.Blocks;
 import mindustry.content.Items;
 import mindustry.content.Liquids;
@@ -33,6 +34,12 @@ public class ModCrafters {
 
     /** 供其他内容注册代码访问的多配方工厂引用。 */
     public static RecipeCrafter test;
+
+    /** 直接消耗蒸汽、无法连接电线的示例多配方工厂。 */
+    public static SteamRecipeCrafter steamFactory;
+
+    /** 为多方块结构提供蒸汽蓄能的示例仓室。 */
+    public static SteamInputHatch steamInputHatch;
 
     /**
      * 创建所有生产相关内容。
@@ -86,6 +93,22 @@ public class ModCrafters {
             energySpec.maxInputVoltageV = 14f;
             energySpec.capacityJ = 4800f;
             energySpec.maxInputA = 32;
+        }};
+
+
+        /*
+         * 蒸汽仓接收管道输入的蒸汽，并把它转换为多方块结构可消费的内部焦耳缓存。
+         * 它继承能源仓接口，但明确关闭电网连接，因此导线贴在旁边也不会建立连接。
+         */
+        steamInputHatch = new SteamInputHatch("steam-input-hatch") {{
+            localizedName = "蒸汽能源仓";
+            description = "接收蒸汽并转换为内部能源缓存，不能连接 MDT 电线。";
+            requirements(Category.power, ItemStack.with(Items.copper, 45, Items.lead, 30));
+
+            liquidCapacity = 40f;
+            energySpec.capacityJ = 4800f;
+            joulesPerSteamUnit = 120f;
+            maxSteamUsePerSecond = 2f;
         }};
 
         /*
@@ -143,6 +166,41 @@ public class ModCrafters {
             groups = new RecipeCrafter.RecipeGroup[]{groupMetals, groupElectronics};
         }};
 
+
+        /*
+         * 蒸汽工厂复用 RecipeCrafter 的配方与内部 EnergyState，但充能来源改为蒸汽。
+         * 1 单位蒸汽提供 120J，转换吞吐为每秒 1 单位，因此持续功率上限为 120J/s。
+         */
+        steamFactory = new SteamRecipeCrafter("steam-multi-factory") {{
+            localizedName = "蒸汽多配方工厂";
+            description = "消耗蒸汽为内部缓存充能，不接受 MDT 电线供电。";
+            size = 2;
+            health = 320;
+            requirements(Category.crafting, ItemStack.with(
+                    Items.copper, 70,
+                    Items.lead, 50,
+                    Items.graphite, 25
+            ));
+
+            liquidCapacity = 30f;
+            energySpec.capacityJ = 720f;
+            joulesPerSteamUnit = 120f;
+            maxSteamUsePerSecond = 1f;
+
+            groups = new RecipeCrafter.RecipeGroup[]{
+                    new RecipeCrafter.RecipeGroup("steam-processing", new RecipeCrafter.Recipe[]{
+                            RecipeCrafter.Recipe.items(
+                                    new ItemStack[]{
+                                            new ItemStack(Items.copper, 2),
+                                            new ItemStack(Items.lead, 1)
+                                    },
+                                    new ItemStack(Items.graphite, 1),
+                                    60f
+                            ).energy(96f)
+                    })
+            };
+        }};
+
         /*
          * 多方块核心本身不接入外部能源网络。
          * 它通过 LevelStruct.energyInputs 定位结构中的能源仓，并直接消费仓内缓存。
@@ -160,7 +218,9 @@ public class ModCrafters {
             Vector<Block> core = new Vector<>(); core.add(this);
             Vector<Block> in = new Vector<>(); in.add(copperInputHatch);
             Vector<Block> out = new Vector<>(); out.add(productOutputHatch);
-            Vector<Block> energy = new Vector<>(); energy.add(energyInputHatch);
+            Vector<Block> energy = new Vector<>();
+            energy.add(energyInputHatch);
+            energy.add(steamInputHatch);
             Vector<Block> air = new Vector<>(); air.add(Blocks.air);
 
             List<List<Block>> mapping = new Vector<>();

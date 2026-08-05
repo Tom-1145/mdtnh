@@ -11,6 +11,7 @@ import arc.util.io.*;
 import mdtnh.energy.EnergySpec;
 import mdtnh.energy.EnergyState;
 import mdtnh.energy.MdtEnergyNode;
+import mdtnh.energy.SteamEnergyConverter;
 import mindustry.Vars;
 import mindustry.content.*;
 import mindustry.gen.*;
@@ -44,6 +45,24 @@ public class RecipeCrafter extends GenericCrafter {
     /** 配方分组；配置界面通过组索引切换当前可执行配方集合。 */
     public RecipeGroup[] groups = new RecipeGroup[]{};
 
+    /** 工厂内部缓存的充能来源。 */
+    public enum EnergySource {
+        electricity,
+        steam
+    }
+
+    /** 默认由 MDT 导线网络充电；蒸汽机器会改为 {@link EnergySource#steam}。 */
+    public EnergySource energySource = EnergySource.electricity;
+
+    /** 蒸汽模式接受并转换的液体。 */
+    public Liquid steamLiquid;
+
+    /** 每消耗一单位蒸汽可写入内部缓存的能量，单位为焦耳。 */
+    public float joulesPerSteamUnit = 120f;
+
+    /** 每个模拟秒最多转换的蒸汽量。 */
+    public float maxSteamUsePerSecond = 1f;
+
     /** 该工厂类型共享的输出电压、输入电压区间、内部容量和电流上限。 */
     public final EnergySpec energySpec = new EnergySpec();
 
@@ -60,6 +79,7 @@ public class RecipeCrafter extends GenericCrafter {
         energySpec.capacityJ = 360f;
         energySpec.maxInputA = 6;
         energySpec.maxOutputA = 0;
+        steamLiquid = ModLiquids.steam;
 
         update = true;
         solid = true;
@@ -106,6 +126,11 @@ public class RecipeCrafter extends GenericCrafter {
     /** @return 运行时实际使用的配方组数组。 */
     public RecipeGroup[] getEffectiveGroups() {
         return groups;
+    }
+
+    /** @return 当前工厂是否使用蒸汽向内部缓存充能。 */
+    public boolean usesSteamEnergy() {
+        return energySource == EnergySource.steam;
     }
 
     /**
@@ -204,22 +229,33 @@ public class RecipeCrafter extends GenericCrafter {
                         : Math.min(1f, build.energyState.energyJ / energySpec.capacityJ)
         ));
 
-        addBar("mdt-energy-io", (MDTFactoryBuild build) -> {
-            int maximum = Math.max(1, Math.max(energySpec.maxInputA, energySpec.maxOutputA));
-            return new Bar(
-                    () -> "I/O: " + build.energyState.inputA + " A in, "
-                            + build.energyState.outputA + " A out | "
-                            + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
-                            + " [" + energySpec.minInputVoltageV + "~"
-                            + energySpec.maxInputVoltageV + " V]"
-                            + (build.energyState.ignoredInputA > 0
-                            ? " | ignored " + build.energyState.ignoredInputA : ""),
-                    () -> Color.valueOf("84f491"),
-                    () -> Math.min(1f,
-                            Math.max(build.energyState.inputA, build.energyState.outputA)
-                                    / (float) maximum)
-            );
-        });
+        if (usesSteamEnergy()) {
+            addBar("mdt-steam", (MDTFactoryBuild build) -> new Bar(
+                    () -> "Steam: " + Math.round(build.liquids.get(steamLiquid) * 10f) / 10f
+                            + " / " + Math.round(liquidCapacity * 10f) / 10f,
+                    () -> Color.lightGray,
+                    () -> steamLiquid == null || liquidCapacity <= 0f
+                            ? 0f
+                            : Math.min(1f, build.liquids.get(steamLiquid) / liquidCapacity)
+            ));
+        } else {
+            addBar("mdt-energy-io", (MDTFactoryBuild build) -> {
+                int maximum = Math.max(1, Math.max(energySpec.maxInputA, energySpec.maxOutputA));
+                return new Bar(
+                        () -> "I/O: " + build.energyState.inputA + " A in, "
+                                + build.energyState.outputA + " A out | "
+                                + Math.round(build.energyState.lastInputVoltageV * 10f) / 10f + " V"
+                                + " [" + energySpec.minInputVoltageV + "~"
+                                + energySpec.maxInputVoltageV + " V]"
+                                + (build.energyState.ignoredInputA > 0
+                                ? " | ignored " + build.energyState.ignoredInputA : ""),
+                        () -> Color.valueOf("84f491"),
+                        () -> Math.min(1f,
+                                Math.max(build.energyState.inputA, build.energyState.outputA)
+                                        / (float) maximum)
+                );
+            });
+        }
 
         addBar("progress", (MDTFactoryBuild build) -> new Bar(
                 () -> {
@@ -300,6 +336,29 @@ public class RecipeCrafter extends GenericCrafter {
             return energyState;
         }
 
+        @Override
+        public boolean canConnectToElectricGrid() {
+            return !usesSteamEnergy();
+        }
+
+        /**
+         * 将蒸汽按设定效率转换为内部缓存能量。
+         *
+         * <p>转换量同时受蒸汽库存、每秒吞吐量和剩余缓存空间限制，不会浪费蒸汽。</p>
+         */
+        protected void convertSteamToEnergy() {
+            if (!usesSteamEnergy()) return;
+            SteamEnergyConverter.convert(
+                    this,
+                    energyState,
+                    energySpec,
+                    steamLiquid,
+                    joulesPerSteamUnit,
+                    maxSteamUsePerSecond,
+                    delta()
+            );
+        }
+
         /**
          * 按 initialEnergyFraction 初始化新建筑的能源缓存。
          */
@@ -318,6 +377,7 @@ public class RecipeCrafter extends GenericCrafter {
          */
         @Override
         public void updateTile() {
+            convertSteamToEnergy();
             RecipeGroup[] groups = getEffectiveGroups();
 
             // 持续尝试输出库存中的所有可能产物，避免切换配方组后旧产物滞留。
@@ -444,6 +504,10 @@ public class RecipeCrafter extends GenericCrafter {
          */
         @Override
         public boolean acceptLiquid(Building source, Liquid liquid) {
+            if (usesSteamEnergy() && liquid == steamLiquid) {
+                return liquids.get(liquid) < liquidCapacity;
+            }
+
             for (RecipeGroup group : getEffectiveGroups()) {
                 for (Recipe r : group.recipes) {
                     if (r.inputLiquids != null) {

@@ -80,6 +80,7 @@ public final class MdtEnergySystem {
      */
     public static boolean canConnect(MdtEnergyNode a, MdtEnergyNode b) {
         if (a == null || b == null) return false;
+        if (!a.canConnectToElectricGrid() || !b.canConnectToElectricGrid()) return false;
         return a.energyBuilding().team == b.energyBuilding().team
                 && (a.isEnergyWire() || b.isEnergyWire());
     }
@@ -127,7 +128,10 @@ public final class MdtEnergySystem {
         List<MdtEnergyNode> result = new ArrayList<>();
         for (Building build : Groups.build) {
             if (build instanceof MdtEnergyNode) {
-                result.add((MdtEnergyNode) build);
+                MdtEnergyNode node = (MdtEnergyNode) build;
+                if (node.canConnectToElectricGrid()) {
+                    result.add(node);
+                }
             }
         }
         result.sort(Comparator.comparingInt(b -> b.energyBuilding().pos()));
