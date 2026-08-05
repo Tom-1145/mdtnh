@@ -1,7 +1,11 @@
 package mdtnh;
 
 import arc.Core;
+import arc.Events;
 import arc.graphics.g2d.*;
+import arc.input.KeyBind;
+import arc.input.KeyCode;
+import arc.struct.Seq;
 import arc.scene.style.*;
 import arc.scene.ui.*;
 import arc.scene.ui.layout.*;
@@ -17,7 +21,10 @@ import mdtnh.hatch.LiquidInputHatch;
 import mdtnh.hatch.LiquidOutputHatch;
 import mindustry.Vars;
 import mindustry.entities.units.BuildPlan;
+import mindustry.game.EventType;
 import mindustry.gen.*;
+import mindustry.graphics.Drawf;
+import mindustry.graphics.Layer;
 import mindustry.graphics.Pal;
 import mindustry.type.*;
 import mindustry.ui.*;
@@ -34,6 +41,34 @@ import java.util.*;
  * 写入指定输出仓。核心自身不保存物品或能量。</p>
  */
 public class MultiblockStructer extends Block {
+
+    /**
+     * 打开或关闭多方块结构预览的可重绑定按键。
+     *
+     * <p>该按键会自动出现在游戏的“设置 → 控制”列表中，默认值为 K。
+     * 绑定名称和分类名称可通过语言包中的
+     * {@code keybind.mdtnh_multiblock_preview.name} 与
+     * {@code category.mdtnh.name} 本地化。</p>
+     */
+    public static final KeyBind structurePreviewKey =
+            KeyBind.add("mdtnh_multiblock_preview", KeyCode.k, "mdtnh");
+
+    /** 新建筑首次显示结构预览时使用的等级。 */
+    public int defaultPreviewLevel = 1;
+
+    /** 结构幽灵方块的不透明度。 */
+    public float previewAlpha = 0.55f;
+
+    /**
+     * 预览只绘制缺失/不匹配的槽位，还是绘制整个结构的全部槽位。
+     *
+     * <p>结构已经完全成形时，所有槽位都已满足，若只绘制缺失槽位则幽灵方块
+     * 列表为空，预览将什么都看不见；此时应设为 false 以显示整个结构轮廓。</p>
+     */
+    public boolean showMissingOnly = false;
+
+    /** 是否输出结构幽灵方块预览相关的调试日志。 */
+    public boolean debugPreview = true;
 
     /** 核心方块在世界和建造预览中的绘制器。 */
     public DrawBlock drawer = new DrawDefault();
@@ -229,6 +264,39 @@ public class MultiblockStructer extends Block {
             build.currentParallel = 0;
             build.progress = 0f;
         });
+
+        // 预览在全局 postDraw 阶段绘制，而不是依赖 Building.draw()。
+        ensurePreviewDrawHook();
+    }
+
+    /**
+     * 是否已经注册过全局预览绘制钩子。
+     *
+     * <p>同一进程内只注册一次；块实例是 Content 单例，因此静态标记足够。</p>
+     */
+    private static boolean previewDrawHookRegistered;
+
+    /**
+     * 注册全局渲染钩子，在每帧所有世界实体绘制完成后绘制幽灵方块。
+     *
+     * <p>Mindustry v159 中 Building 实体并不实现 {@code Drawc}，不会进入
+     * {@code Groups.draw}，因此建筑的 {@code draw()} 不一定被调用；改用
+     * {@link EventType.Trigger#postDraw} 保证在方块与建筑之后绘制预览。</p>
+     */
+    private void ensurePreviewDrawHook() {
+        if (previewDrawHookRegistered) return;
+        previewDrawHookRegistered = true;
+
+        Events.run(EventType.Trigger.postDraw, () -> {
+            if (Vars.state.isMenu()) return;
+            for (Building b : Groups.build) {
+                if (b instanceof MultiblockStructerBuilding mb
+                        && mb.structurePreviewVisible
+                        && mb.tile != null) {
+                    mb.drawStructurePreview();
+                }
+            }
+        });
     }
 
     /** 加载核心方块图集区域。 */
@@ -339,6 +407,38 @@ public class MultiblockStructer extends Block {
         public pos[] currentEnergyInputs;
         public pos[] currentLiquidInputs;
         public pos[] currentLiquidOutputs;
+
+        /** 当前是否绘制结构幽灵方块；仅影响本地客户端显示。 */
+        public boolean structurePreviewVisible;
+
+        /**
+         * 当前预览等级。
+         *
+         * <p>该值从 {@link MultiblockStructer#defaultPreviewLevel} 初始化，
+         * 实际绘制时始终限制在 1 到 levels.size() 之间。</p>
+         */
+        public int structurePreviewLevel = defaultPreviewLevel;
+
+        /** 当前一次预览键按住期间是否已经执行过等级调整。 */
+        private boolean previewLevelAdjustedDuringHold;
+
+        /** 是否已经在本建筑上开始处理一次预览键按压。 */
+        private boolean previewKeyPressActive;
+
+        /** 上一次逻辑 tick 时预览键是否处于按下状态，用于可靠的按键边沿检测。 */
+        private boolean previewKeyDownLastFrame;
+
+        /** 本次按压开始前预览是否已经可见，松开键时据此恢复切换语义。 */
+        private boolean previewWasVisibleBeforePress;
+
+        /** 上一次输出诊断日志时的 (可见, 等级, 计划数) 签名，仅在签名变化时输出，避免刷屏。 */
+        private int lastLoggedPreviewSignature = -1;
+
+        /** 上一次输出“进入绘制”日志时的 (可见, 等级) 签名。 */
+        private int lastPreviewEntrySignature = -1;
+
+        /** 复用的绘制计划列表，避免每帧创建临时集合。 */
+        private final Seq<BuildPlan> structurePreviewPlans = new Seq<>();
 
         /**
          * 检查核心周围是否满足结构定义。
@@ -780,6 +880,9 @@ public class MultiblockStructer extends Block {
         public void updateTile() {
             super.updateTile();
 
+            // 客户端每 tick 读取一次按键，用 keyDown 边沿检测避免快速点击被吞掉。
+            handleStructurePreviewInput();
+
             // 结构检查无需每 tick 执行，每秒检查一次可降低地图扫描开销。
             if (timer(0, 60f)) {
                 boolean wasMolded = Molded;
@@ -907,6 +1010,291 @@ public class MultiblockStructer extends Block {
         }
 
         /**
+         * 返回鼠标当前是否悬浮在本核心占据的任意方格上。
+         */
+        private boolean mouseHoveredOverCore() {
+            if (Vars.headless || Core.input == null || tile == null) return false;
+
+            Building hovered = Vars.world.buildWorld(
+                    Core.input.mouseWorldX(),
+                    Core.input.mouseWorldY()
+            );
+            return hovered == this;
+        }
+
+        /**
+         * 将预览等级限制到有效范围。
+         *
+         * @return 没有结构等级时返回 0，否则返回 1 到最大等级之间的值
+         */
+        private int effectiveStructurePreviewLevel() {
+            int maximum = levels == null ? 0 : levels.size();
+            if (maximum <= 0) return 0;
+
+            structurePreviewLevel = Math.max(
+                    1,
+                    Math.min(structurePreviewLevel, maximum)
+            );
+            return structurePreviewLevel;
+        }
+
+        /**
+         * 处理结构预览快捷键。
+         *
+         * <p>按住预览键期间立即显示幽灵方块；单独按下并松开预览键时切换显示状态；
+         * 按住预览键期间按加号或减号则调整等级，发生等级调整后松开预览键不会再次
+         * 切换显示，从而保留调整后的等级。</p>
+         *
+         * <p>按键按下与松开采用 keyDown 轮询的边沿检测，而不是仅持续一帧的
+         * keyTap / keyRelease，避免快速点击落在逻辑 tick 与渲染帧之间的空隙而丢失。</p>
+         */
+        private void handleStructurePreviewInput() {
+            if (Vars.headless || Core.input == null
+                    || !Vars.state.isGame()
+                    || Core.scene != null && (Core.scene.hasField() || Core.scene.hasDialog())) {
+                previewKeyDownLastFrame = false;
+                return;
+            }
+
+            boolean keyDown = Core.input.keyDown(structurePreviewKey);
+            boolean justPressed = keyDown && !previewKeyDownLastFrame;
+            boolean justReleased = !keyDown && previewKeyDownLastFrame;
+            previewKeyDownLastFrame = keyDown;
+
+            if (debugPreview && (justPressed || justReleased)) {
+                Log.info("[mdtnh-preview] 按键边沿 @:@ 按下=@ 按住=@", tile.x, tile.y, justPressed, keyDown);
+            }
+
+            // 在核心上按下预览键：记录按压前可见状态，并立即显示幽灵方块（按住期间可见）。
+            if (justPressed && mouseHoveredOverCore()) {
+                previewKeyPressActive = true;
+                previewLevelAdjustedDuringHold = false;
+                previewWasVisibleBeforePress = structurePreviewVisible;
+                structurePreviewVisible = true;
+
+                if (debugPreview) {
+                    Log.info("[mdtnh-preview] 开始按压 @:@ 按压前可见=@", tile.x, tile.y, previewWasVisibleBeforePress);
+                }
+            }
+
+            // 按住期间按加号或减号调整等级。
+            if (previewKeyPressActive && keyDown) {
+                /*
+                 * 部分键盘把“+”报告为 plus，部分键盘则报告为 Shift + equals；
+                 * 两种形式都接受。
+                 */
+                boolean increase = Core.input.keyTap(KeyCode.plus)
+                        || (Core.input.shift() && Core.input.keyTap(KeyCode.equals));
+                boolean decrease = Core.input.keyTap(KeyCode.minus);
+
+                if (increase || decrease) {
+                    int maximum = levels == null ? 0 : levels.size();
+                    if (maximum > 0) {
+                        int delta = increase ? 1 : -1;
+                        structurePreviewLevel = Math.max(
+                                1,
+                                Math.min(structurePreviewLevel + delta, maximum)
+                        );
+                        structurePreviewVisible = true;
+
+                        if (debugPreview) {
+                            Log.info("[mdtnh-preview] 调整等级 @:@ @ -> @/@",
+                                    tile.x, tile.y,
+                                    delta > 0 ? "+1" : "-1",
+                                    structurePreviewLevel, maximum);
+                        }
+                    } else if (debugPreview) {
+                        Log.warn("[mdtnh-preview] 尝试调整等级但未定义任何结构等级 @:@", tile.x, tile.y);
+                    }
+
+                    previewLevelAdjustedDuringHold = true;
+                }
+            }
+
+            // 松开预览键：未调整过等级时按“切换显示”恢复，否则保留调整后的预览。
+            if (previewKeyPressActive && justReleased) {
+                if (!previewLevelAdjustedDuringHold) {
+                    structurePreviewVisible = !previewWasVisibleBeforePress;
+                }
+
+                if (debugPreview) {
+                    Log.info("[mdtnh-preview] 结束按压 @:@ 可见=@ 曾调级=@",
+                            tile.x, tile.y, structurePreviewVisible, previewLevelAdjustedDuringHold);
+                }
+
+                previewKeyPressActive = false;
+                previewLevelAdjustedDuringHold = false;
+            }
+        }
+
+        /**
+         * 根据指定结构等级生成幽灵方块计划。
+         *
+         * <p>每个结构槽位使用其 Mapping 匹配列表中的第一个方块作为幽灵方块。
+         * 空气槽位与核心自身位置不会绘制。仅当 {@link MultiblockStructer#showMissingOnly}
+         * 为 true 时，才会跳过世界中的任意允许方块已经满足的槽位；默认绘制整个结构，
+         * 从而在结构完全成形时也能看到完整的结构轮廓。</p>
+         */
+        private void rebuildStructurePreviewPlans(int previewLevel) {
+            structurePreviewPlans.clear();
+            if (previewLevel <= 0 || previewLevel > levels.size()) {
+                logPreviewDiagnostic("等级无效", previewLevel, 0);
+                return;
+            }
+
+            LevelStruct definition = levels.get(previewLevel - 1);
+            if (definition == null || definition.struct == null || definition.Mapping == null) {
+                logPreviewDiagnostic("等级缺少结构定义", previewLevel, 0);
+                return;
+            }
+
+            for (Map.Entry<pos, Integer> entry : definition.struct.entrySet()) {
+                pos offset = entry.getKey();
+                Integer mappingIndex = entry.getValue();
+
+                if (offset == null || mappingIndex == null
+                        || mappingIndex < 0
+                        || mappingIndex >= definition.Mapping.size()) {
+                    continue;
+                }
+
+                List<Block> candidates = definition.Mapping.get(mappingIndex);
+                if (candidates == null || candidates.isEmpty()) continue;
+
+                Block previewBlock = candidates.get(0);
+                if (previewBlock == null || previewBlock.isAir()) continue;
+
+                // 核心已经存在，不需要在自身位置再覆盖一层幽灵贴图。
+                if (offset.x == 0 && offset.y == 0
+                        && previewBlock == MultiblockStructer.this) {
+                    continue;
+                }
+
+                int planX = tile.x + offset.x;
+                int planY = tile.y + offset.y;
+                Tile existing = Vars.world.tile(planX, planY);
+
+                // 仅“只显示缺失”模式才跳过已被任意允许方块满足的槽位。
+                if (showMissingOnly && slotSatisfied(existing, candidates)) continue;
+
+                BuildPlan plan = new BuildPlan(planX, planY, 0, previewBlock, null);
+                plan.worldContext = true;
+                plan.animScale = 1f;
+                structurePreviewPlans.add(plan);
+            }
+
+            logPreviewDiagnostic("生成幽灵方块", previewLevel, structurePreviewPlans.size);
+        }
+
+        /**
+         * 判断某槽位当前是否已经被任意一个允许方块满足。
+         */
+        private boolean slotSatisfied(Tile existing, List<Block> candidates) {
+            if (existing == null || existing.block() == null) return false;
+            for (Block allowed : candidates) {
+                if (existing.block() == allowed) return true;
+            }
+            return false;
+        }
+
+        /**
+         * 输出预览绘制侧诊断日志。
+         *
+         * <p>仅在可见状态、等级与计划数三者构成的签名发生变化时输出一次，
+         * 避免预览持续可见时每帧刷屏。</p>
+         */
+        private void logPreviewDiagnostic(String message, int level, int count) {
+            if (!debugPreview) return;
+
+            int signature = (structurePreviewVisible ? 1 : 0) * 1000000 + level * 1000 + count;
+            if (signature == lastLoggedPreviewSignature) return;
+            lastLoggedPreviewSignature = signature;
+
+            Log.info("[mdtnh-preview] @ @:@ 可见=@ 等级=@ 计划数=@",
+                    message,
+                    tile == null ? -1 : tile.x,
+                    tile == null ? -1 : tile.y,
+                    structurePreviewVisible,
+                    level,
+                    count);
+        }
+
+        /**
+         * 绘制当前等级的整个结构（或仅缺失槽位，取决于 {@link #showMissingOnly}）。
+         *
+         * <p>使用各方块自己的 drawPlan，因此带有专用 drawer 的方块也能显示正确
+         * 预览贴图；drawPlan 内部会叠加原版一致的白色脉冲混合色与半透明效果，
+         * 并保留方块本身的颜色，便于辨认该位置需要放置哪种方块。幽灵方块绘制在
+         * 原版放置预览图层之上，因此即使结构已经成形也会叠加显示完整轮廓。</p>
+         */
+        private void drawStructurePreview() {
+            // 在任何早退之前记录一次进入状态：即使 visible 为 false 也输出，便于定位“按了键却没绘制”。
+            logPreviewEntry();
+
+            if (!structurePreviewVisible || tile == null) return;
+
+            int previewLevel = effectiveStructurePreviewLevel();
+            if (previewLevel <= 0) {
+                logPreviewDiagnostic("预览已开启但有效等级为 0", previewLevel, 0);
+                return;
+            }
+
+            rebuildStructurePreviewPlans(previewLevel);
+
+            // 计划数为 0 时也记录一次，便于区分“结构完整无缺失”与“绘制失败”。
+            logPreviewDiagnostic("绘制幽灵方块", previewLevel, structurePreviewPlans.size);
+
+            float alpha = Math.max(0f, Math.min(1f, previewAlpha));
+
+            // 幽灵方块绘制在原版放置预览的图层，保证叠加在已放置的方块之上。
+            try {
+                float previousZ = Draw.z();
+                Draw.z(Layer.plans);
+                for (BuildPlan plan : structurePreviewPlans) {
+                    if (plan == null || plan.block == null) continue;
+
+                    // 有效位置、统一透明度的原版风格幽灵方块。
+                    plan.block.drawPlan(plan, structurePreviewPlans, true, alpha);
+                }
+                Draw.z(previousZ);
+            } catch (Throwable t) {
+                Log.err("[mdtnh-preview] 绘制幽灵方块时发生异常 @:@", tile.x, tile.y);
+                Log.err(t);
+            }
+
+            Draw.reset();
+
+            // 鼠标仍在核心上时显示当前有效预览等级，便于确认加减键调整结果。
+            if (mouseHoveredOverCore()) {
+                Drawf.text(
+                        Core.bundle.get("mdtnh.multiblock-preview-level", "结构等级")
+                                + " " + previewLevel + " / " + levels.size(),
+                        x,
+                        y + block.size * Vars.tilesize / 2f + 10f,
+                        Pal.accent,
+                        0.75f
+                );
+            }
+        }
+
+        /**
+         * 记录进入幽灵方块绘制时点的状态，位于所有早退判断之前。
+         *
+         * <p>仅在可见状态与等级构成的签名变化时输出一次，避免每帧刷屏。</p>
+         */
+        private void logPreviewEntry() {
+            if (!debugPreview || tile == null) return;
+
+            int level = effectiveStructurePreviewLevel();
+            int signature = (structurePreviewVisible ? 1 : 0) * 10000 + level;
+            if (signature == lastPreviewEntrySignature) return;
+            lastPreviewEntrySignature = signature;
+
+            Log.info("[mdtnh-preview] 进入绘制 @:@ 可见=@ 等级=@ 计划数=@",
+                    tile.x, tile.y, structurePreviewVisible, level, structurePreviewPlans.size);
+        }
+
+        /**
          * 构建配方组选择界面。
          *
          * <p>优先使用 Texture_name 指向的模组图集区域；缺失时回退到该组
@@ -996,6 +1384,9 @@ public class MultiblockStructer extends Block {
         public void draw() {
             if (drawer != null) drawer.draw(this);
             else Draw.rect(region, x, y);
+
+            // 预览不在此处绘制：v159 中 Building.draw() 不一定被调用，
+            // 统一由外层的 Trigger.postDraw 全局钩子在所有实体绘制完成后绘制。
         }
 
         /** 将核心绘制器提供的光照效果交给 Mindustry 渲染。 */
