@@ -437,8 +437,30 @@ public class MultiblockStructer extends Block {
         /** 上一次输出“进入绘制”日志时的 (可见, 等级) 签名。 */
         private int lastPreviewEntrySignature = -1;
 
+        /** 上一次执行结构检查时的旋转值；旋转变化时立即重新检查结构。 */
+        private int lastCheckedRotation = -1;
+
         /** 复用的绘制计划列表，避免每帧创建临时集合。 */
         private final Seq<BuildPlan> structurePreviewPlans = new Seq<>();
+
+        /**
+         * 将结构定义中的相对坐标按核心当前旋转方向变换到世界坐标。
+         *
+         * <p>Mindustry 的 rotation 从 0 到 3，每加一为顺时针旋转 90°；
+         * 定义坐标固定为 rotation=0（上方）时的朝向，因此结构会随核心旋转。</p>
+         *
+         * @return 新的 pos 实例，不会修改结构定义中的原对象
+         */
+        private pos rotateOffset(pos offset) {
+            int dx = offset.x;
+            int dy = offset.y;
+            switch (rotation & 3) {
+                case 1:  return new pos(dy, -dx);
+                case 2:  return new pos(-dx, -dy);
+                case 3:  return new pos(-dy, dx);
+                default: return new pos(dx, dy);
+            }
+        }
 
         /**
          * 检查核心周围是否满足结构定义。
@@ -447,7 +469,8 @@ public class MultiblockStructer extends Block {
          * 方法不会在找到第一个匹配后退出，因此若多个等级同时匹配，最终采用
          * levels 中位置靠后的等级。</p>
          *
-         * <p>同时动态更新舱室位置</p>
+         * <p>坐标会先按核心旋转方向变换，因此结构判定随核心旋转；同时动态更新
+         * 舱室位置。</p>
          */
         public void CheckStruct() {
             level = 0;
@@ -464,8 +487,9 @@ public class MultiblockStructer extends Block {
                 List<pos> foundLiquidOutputs = new ArrayList<>();
 
                 for (Map.Entry<pos, Integer> ps : now.struct.entrySet()) {
-                    int dx = ps.getKey().x;
-                    int dy = ps.getKey().y;
+                    pos worldOffset = rotateOffset(ps.getKey());
+                    int dx = worldOffset.x;
+                    int dy = worldOffset.y;
                     Tile checkTile = Vars.world.tile(tile.x + dx, tile.y + dy);
 
                     if (checkTile == null) {
@@ -883,8 +907,10 @@ public class MultiblockStructer extends Block {
             // 客户端每 tick 读取一次按键，用 keyDown 边沿检测避免快速点击被吞掉。
             handleStructurePreviewInput();
 
-            // 结构检查无需每 tick 执行，每秒检查一次可降低地图扫描开销。
-            if (timer(0, 60f)) {
+            // 结构检查每秒一次以降低扫描开销；旋转变化时立即重新检查，
+            // 使结构判定随核心旋转即时更新。
+            if (timer(0, 60f) || rotation != lastCheckedRotation) {
+                lastCheckedRotation = rotation;
                 boolean wasMolded = Molded;
                 int oldLevel = level;
                 CheckStruct();
@@ -1170,8 +1196,10 @@ public class MultiblockStructer extends Block {
                     continue;
                 }
 
-                int planX = tile.x + offset.x;
-                int planY = tile.y + offset.y;
+                // 结构定义坐标随核心旋转变换到世界位置。
+                pos worldOffset = rotateOffset(offset);
+                int planX = tile.x + worldOffset.x;
+                int planY = tile.y + worldOffset.y;
                 Tile existing = Vars.world.tile(planX, planY);
 
                 // 仅“只显示缺失”模式才跳过已被任意允许方块满足的槽位。
@@ -1200,22 +1228,24 @@ public class MultiblockStructer extends Block {
         /**
          * 输出预览绘制侧诊断日志。
          *
-         * <p>仅在可见状态、等级与计划数三者构成的签名发生变化时输出一次，
+         * <p>仅在可见状态、等级、旋转与计划数构成的签名发生变化时输出一次，
          * 避免预览持续可见时每帧刷屏。</p>
          */
         private void logPreviewDiagnostic(String message, int level, int count) {
             if (!debugPreview) return;
 
-            int signature = (structurePreviewVisible ? 1 : 0) * 1000000 + level * 1000 + count;
+            int rot = rotation & 3;
+            int signature = (structurePreviewVisible ? 1 : 0) * 100000 + level * 1000 + rot * 100 + count;
             if (signature == lastLoggedPreviewSignature) return;
             lastLoggedPreviewSignature = signature;
 
-            Log.info("[mdtnh-preview] @ @:@ 可见=@ 等级=@ 计划数=@",
+            Log.info("[mdtnh-preview] @ @:@ 可见=@ 等级=@ 旋转=@ 计划数=@",
                     message,
                     tile == null ? -1 : tile.x,
                     tile == null ? -1 : tile.y,
                     structurePreviewVisible,
                     level,
+                    rot,
                     count);
         }
 
@@ -1286,12 +1316,13 @@ public class MultiblockStructer extends Block {
             if (!debugPreview || tile == null) return;
 
             int level = effectiveStructurePreviewLevel();
-            int signature = (structurePreviewVisible ? 1 : 0) * 10000 + level;
+            int rot = rotation & 3;
+            int signature = (structurePreviewVisible ? 1 : 0) * 10000 + level * 100 + rot;
             if (signature == lastPreviewEntrySignature) return;
             lastPreviewEntrySignature = signature;
 
-            Log.info("[mdtnh-preview] 进入绘制 @:@ 可见=@ 等级=@ 计划数=@",
-                    tile.x, tile.y, structurePreviewVisible, level, structurePreviewPlans.size);
+            Log.info("[mdtnh-preview] 进入绘制 @:@ 可见=@ 等级=@ 旋转=@ 计划数=@",
+                    tile.x, tile.y, structurePreviewVisible, level, rot, structurePreviewPlans.size);
         }
 
         /**

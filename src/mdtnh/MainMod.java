@@ -19,6 +19,9 @@ public class MainMod extends Mod {
         Log.info("Loading BasicFactory...");
         ModCrafters.load();
 
+        Log.info("Loading voltage example machines...");
+        VoltageExampleMachines.load();
+
         Log.info("Loading MDT discrete energy examples...");
         MdtEnergyBlocks.load();
         MdtEnergySystem.install();

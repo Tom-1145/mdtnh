@@ -48,7 +48,8 @@ public class RecipeCrafter extends GenericCrafter {
     /** 工厂内部缓存的充能来源。 */
     public enum EnergySource {
         electricity,
-        steam
+        steam,
+        manual
     }
 
     /** 默认由 MDT 导线网络充电；蒸汽机器会改为 {@link EnergySource#steam}。 */
@@ -58,7 +59,7 @@ public class RecipeCrafter extends GenericCrafter {
     public Liquid steamLiquid;
 
     /** 每消耗一单位蒸汽可写入内部缓存的能量，单位为焦耳。 */
-    public float joulesPerSteamUnit = 120f;
+    public float joulesPerSteamUnit = 10f;
 
     /** 每个模拟秒最多转换的蒸汽量。 */
     public float maxSteamUsePerSecond = 1f;
@@ -135,6 +136,16 @@ public class RecipeCrafter extends GenericCrafter {
         return energySource == EnergySource.steam;
     }
 
+    /** @return 当前工厂是否直接使用外部电网。 */
+    public boolean usesElectricEnergy() {
+        return energySource == EnergySource.electricity;
+    }
+
+    /** @return 当前工厂是否为不消耗能源的手动机器。 */
+    public boolean usesManualEnergy() {
+        return energySource == EnergySource.manual;
+    }
+
     /**
      * 一条可执行配方。
      *
@@ -151,6 +162,12 @@ public class RecipeCrafter extends GenericCrafter {
 
         /** 完成一次配方所需的总能量，单位为焦耳。 */
         public float energyPerCraftJ;
+
+        /** 该派生配方最初要求的最低电压等级；普通配方可为 null。 */
+        public VoltageTier minimumVoltageTier;
+
+        /** 当前配方实际运行所在的机器电压等级；普通配方可为 null。 */
+        public VoltageTier executionVoltageTier;
 
         public Recipe(ItemStack[] inputItems, LiquidStack[] inputLiquids,
                       ItemStack[] outputItems, LiquidStack[] outputLiquids, float craftTime) {
@@ -176,6 +193,46 @@ public class RecipeCrafter extends GenericCrafter {
         public Recipe energy(float joules) {
             this.energyPerCraftJ = Math.max(0f, joules);
             return this;
+        }
+
+        /**
+         * 深复制配方数组，并替换运行时间与能耗。
+         *
+         * <p>物品堆和液体堆均重新创建，注册器可以安全地为不同电压机器生成独立配方，
+         * 不会因后续修改某台机器的配方而污染其他机器。</p>
+         */
+        public Recipe copyWith(float newCraftTime, float newEnergyPerCraftJ) {
+            Recipe result = new Recipe(
+                    copyItems(inputItems),
+                    copyLiquids(inputLiquids),
+                    copyItems(outputItems),
+                    copyLiquids(outputLiquids),
+                    Math.max(0.0001f, newCraftTime),
+                    Math.max(0f, newEnergyPerCraftJ)
+            );
+            result.minimumVoltageTier = minimumVoltageTier;
+            result.executionVoltageTier = executionVoltageTier;
+            return result;
+        }
+
+        private static ItemStack[] copyItems(ItemStack[] source) {
+            if (source == null) return null;
+            ItemStack[] result = new ItemStack[source.length];
+            for (int i = 0; i < source.length; i++) {
+                ItemStack stack = source[i];
+                result[i] = stack == null ? null : new ItemStack(stack.item, stack.amount);
+            }
+            return result;
+        }
+
+        private static LiquidStack[] copyLiquids(LiquidStack[] source) {
+            if (source == null) return null;
+            LiquidStack[] result = new LiquidStack[source.length];
+            for (int i = 0; i < source.length; i++) {
+                LiquidStack stack = source[i];
+                result[i] = stack == null ? null : new LiquidStack(stack.liquid, stack.amount);
+            }
+            return result;
         }
 
         /** 创建只有物品输入和单物品输出的配方。 */
@@ -231,7 +288,7 @@ public class RecipeCrafter extends GenericCrafter {
         }
 
         public void addRecipe(Recipe recipe){
-            List<Recipe> x = new ArrayList<>(List.of(recipes));
+            List<Recipe> x = new ArrayList<>(Arrays.asList(recipes));
             x.add(recipe);
             recipes=x.toArray(new Recipe[0]);
         }
@@ -244,14 +301,16 @@ public class RecipeCrafter extends GenericCrafter {
     public void setBars() {
         super.setBars();
 
-        addBar("mdt-energy", (MDTFactoryBuild build) -> new Bar(
-                () -> "Energy: " + Math.round(build.energyState.energyJ)
-                        + " / " + Math.round(energySpec.capacityJ) + " J",
-                () -> Color.valueOf("ffd37f"),
-                () -> energySpec.capacityJ <= 0f
-                        ? 0f
-                        : Math.min(1f, build.energyState.energyJ / energySpec.capacityJ)
-        ));
+        if (!usesManualEnergy()) {
+            addBar("mdt-energy", (MDTFactoryBuild build) -> new Bar(
+                    () -> "Energy: " + Math.round(build.energyState.energyJ)
+                            + " / " + Math.round(energySpec.capacityJ) + " J",
+                    () -> Color.valueOf("ffd37f"),
+                    () -> energySpec.capacityJ <= 0f
+                            ? 0f
+                            : Math.min(1f, build.energyState.energyJ / energySpec.capacityJ)
+            ));
+        }
 
         if (usesSteamEnergy()) {
             addBar("mdt-steam", (MDTFactoryBuild build) -> new Bar(
@@ -262,7 +321,7 @@ public class RecipeCrafter extends GenericCrafter {
                             ? 0f
                             : Math.min(1f, build.liquids.get(steamLiquid) / liquidCapacity)
             ));
-        } else {
+        } else if (usesElectricEnergy()) {
             addBar("mdt-energy-io", (MDTFactoryBuild build) -> {
                 int maximum = Math.max(1, Math.max(energySpec.maxInputA, energySpec.maxOutputA));
                 return new Bar(
@@ -366,7 +425,7 @@ public class RecipeCrafter extends GenericCrafter {
 
         @Override
         public boolean canConnectToElectricGrid() {
-            return !usesSteamEnergy();
+            return usesElectricEnergy();
         }
 
         /**
@@ -453,33 +512,49 @@ public class RecipeCrafter extends GenericCrafter {
 
             if (currentRecipe >= 0 && currentRecipe < activeRecipes.length) {
                 Recipe active = activeRecipes[currentRecipe];
-                craftTime = active.craftTime;
+                craftTime = Math.max(0.0001f, active.craftTime);
 
-                // 本 tick 能耗 = 配方总能耗 × 本 tick 有效工作量 / 配方总工时。
                 if (shouldConsume()) {
-                    float workTicks = delta() * efficiency;
-                    float requiredEnergyJ = active.energyPerCraftJ * workTicks / active.craftTime;
+                    /*
+                     * 将本 tick 的有效工作量切成“推进到下一次完成点”的若干段。
+                     * 这样 craftTime 小于 1 tick 时可以在一个 tick 内完成多次生产，
+                     * 同时每一段都先检查材料、输出空间和能源，避免提前扣除无法执行的工作量。
+                     */
+                    float remainingWorkTicks = Math.max(0f, delta() * efficiency);
+                    int safety = 0;
+                    while (remainingWorkTicks > 0.000001f && safety++ < 10000) {
+                        if (!hasAllMaterials(active) || outputFull(active)) {
+                            currentRecipe = -1;
+                            break;
+                        }
 
-                    if (energyState.consume(requiredEnergyJ)) {
-                        progress += workTicks / active.craftTime;
+                        float ticksToFinish = Math.max(0.000001f, (1f - progress) * craftTime);
+                        float segmentTicks = Math.min(remainingWorkTicks, ticksToFinish);
+                        float requiredEnergyJ = active.energyPerCraftJ * segmentTicks / craftTime;
+
+                        if (!energyState.consume(requiredEnergyJ)) {
+                            break;
+                        }
+
+                        progress += segmentTicks / craftTime;
+                        remainingWorkTicks -= segmentTicks;
+
+                        if (progress >= 0.999999f) {
+                            craft(active);
+                            progress = Math.max(0f, progress - 1f);
+
+                            if (active.outputItems != null) {
+                                for (ItemStack out : active.outputItems) dump(out.item);
+                            }
+                            if (active.outputLiquids != null) {
+                                for (LiquidStack out : active.outputLiquids) dumpLiquid(out.liquid);
+                            }
+                        }
                     }
-                    // consume 返回 false 时不扣除部分能量，也不推进进度。
                 }
 
-                // 进度达到 1 后一次性结算原料与产物，并保留可能溢出的进度小数。
-                if (progress >= 1f) {
-                    craft(active);
-                    progress %= 1f;
-                    if (active.outputItems != null) {
-                        for (ItemStack out : active.outputItems) dump(out.item);
-                    }
-                    if (active.outputLiquids != null) {
-                        for (LiquidStack out : active.outputLiquids) dumpLiquid(out.liquid);
-                    }
-
-                    if (!hasAllMaterials(active) || outputFull(active)) {
-                        currentRecipe = -1;
-                    }
+                if (currentRecipe >= 0 && (!hasAllMaterials(active) || outputFull(active))) {
+                    currentRecipe = -1;
                 }
             } else {
                 progress = 0f;
@@ -529,12 +604,12 @@ public class RecipeCrafter extends GenericCrafter {
         private boolean outputFull(Recipe r) {
             if (r.outputItems != null) {
                 for (ItemStack stack : r.outputItems) {
-                    if (items.get(stack.item) >= itemCapacity) return true;
+                    if (items.get(stack.item) + stack.amount > itemCapacity) return true;
                 }
             }
             if (r.outputLiquids != null) {
                 for (LiquidStack stack : r.outputLiquids) {
-                    if (liquids.get(stack.liquid) >= liquidCapacity) return true;
+                    if (liquids.get(stack.liquid) + stack.amount > liquidCapacity) return true;
                 }
             }
             return false;
