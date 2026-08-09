@@ -6,8 +6,8 @@ import arc.util.Log;
 
 import mdtnh.energy.MdtEnergyBlocks;
 import mdtnh.energy.MdtEnergySystem;
-import mdtnh.ui.build.MdtBuildMenuContent;
-import mdtnh.ui.build.MdtBuildMenuFragment;
+import mdtnh.modui.buildui.MdtBuildMenuContent;
+import mdtnh.modui.buildui.MdtBuildMenuFragment;
 
 import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.mod.Mod;
