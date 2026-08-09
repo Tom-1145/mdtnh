@@ -1,31 +1,40 @@
 package mdtnh;
 
+import arc.Core;
+import arc.Events;
 import arc.util.Log;
+
 import mdtnh.energy.MdtEnergyBlocks;
 import mdtnh.energy.MdtEnergySystem;
+import mdtnh.ui.build.MdtBuildMenuContent;
+import mdtnh.ui.build.MdtBuildMenuFragment;
+
+import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.mod.Mod;
 
 public class MainMod extends Mod {
+    private MdtBuildMenuFragment buildMenu;
+
+    public MainMod() {
+        Events.on(ClientLoadEvent.class, event -> Core.app.post(() -> {
+            if (buildMenu != null) return;
+            Log.info("Loading MDT build menu...");
+            MdtBuildMenuContent.load();
+            buildMenu = new MdtBuildMenuFragment(MdtBuildMenuContent.registry);
+            buildMenu.install();
+            Log.info("MDT build menu installed.");
+        }));
+    }
+
     @Override
     public void loadContent() {
         Log.info("MainMod.loadContent() started");
-
-        Log.info("Loading ModItems...");
         ModItems.load();
-
-        Log.info("Loading ModLiquids...");
         ModLiquids.load();
-
-        Log.info("Loading BasicFactory...");
         ModCrafters.load();
-
-        Log.info("Loading voltage example machines...");
         VoltageExampleMachines.load();
-
-        Log.info("Loading MDT discrete energy examples...");
         MdtEnergyBlocks.load();
         MdtEnergySystem.install();
-
         Log.info("All content loaded.");
     }
 }
