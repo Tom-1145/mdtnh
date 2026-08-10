@@ -9,7 +9,11 @@ version = '1.0'
 
 sourceSets.main.java.srcDirs = ["src"]
 
-repositories{
+repositories {
+    // 国内镜像加速（阿里云）
+    maven {
+        url 'https://maven.aliyun.com/repository/public'
+    }
     mavenCentral()
 
     //Downloads the dependencies JAR file from Mindustry releases; does not use any real repository. Surprisingly, this is the most reliable option.
@@ -37,6 +41,9 @@ repositories{
 java{
     targetCompatibility = JavaVersion.VERSION_17
     sourceCompatibility = JavaVersion.VERSION_17
+    toolchain {
+  	languageVersion = JavaLanguageVersion.of(17)
+    }
 }
 
 ext{
