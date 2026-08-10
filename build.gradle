@@ -9,7 +9,11 @@ version = '1.0'
 
 sourceSets.main.java.srcDirs = ["src"]
 
-repositories{
+repositories {
+    // 国内镜像加速（阿里云）
+    maven {
+        url 'https://maven.aliyun.com/repository/public'
+    }
     mavenCentral()
 
     //Downloads the dependencies JAR file from Mindustry releases; does not use any real repository. Surprisingly, this is the most reliable option.
@@ -55,6 +59,8 @@ ext{
 
 dependencies{
     compileOnly mindustryVersion == "be" ? "Anuken:MindustryBuilds:latest" : "Anuken:Mindustry:$mindustryVersion"
+    implementation "com.belerweb:pinyin4j:2.5.1"
+
 }
 
 tasks.register('jarAndroid'){

@@ -36,8 +36,22 @@ public enum VoltageTier {
     /** 可正常接收的最高输入电压，同时作为倍率计算的标称电压，单位 V。 */
     public final float maxVoltageV;
 
+    /**
+     * 该等级机器的基础能源缓存容量，单位 J。
+     *
+     * <p>注册配方后，注册器仍可能根据实际配方功率把机器缓存扩充到更大值。</p>
+     */
     public final int capacityJ;
 
+    /**
+     * 定义一个离散电压等级。
+     *
+     * @param displayName 面向玩家的等级名称
+     * @param contentName 方块内部名称使用的标识
+     * @param minVoltageV 可接受最低输入电压
+     * @param maxVoltageV 可接受最高输入电压，同时作为倍率计算的标称电压
+     * @param capacityJ   基础能源缓存容量
+     */
     VoltageTier(String displayName, String contentName, float minVoltageV, float maxVoltageV,int capacityJ) {
         this.displayName = displayName;
         this.contentName = contentName;
@@ -46,19 +60,31 @@ public enum VoltageTier {
         this.capacityJ=capacityJ;
     }
 
-    /** @return 当前等级是否能够执行要求 minimumTier 或更低等级的配方。 */
+    /**
+     * 判断当前等级是否满足配方最低等级要求。
+     *
+     * @param minimumTier 配方要求的最低电压等级
+     * @return 当前等级不低于最低要求时返回 {@code true}
+     */
     public boolean canProcess(VoltageTier minimumTier) {
         return minimumTier != null && ordinal() >= minimumTier.ordinal();
     }
 
-    /** @return 当前等级比最低要求高出的级数。 */
+    /**
+     * 计算当前等级比配方最低等级高出的级数。
+     *
+     * @return 可执行时返回非负级差；等级不足时返回 {@code -1}
+     */
     public int stepsAbove(VoltageTier minimumTier) {
         if (!canProcess(minimumTier)) return -1;
         return ordinal() - minimumTier.ordinal();
     }
 
     /**
-     * 高出一级速度翻倍，因此配方时间除以 2；高出 n 级时除以 2^n。
+     * 计算等级提升带来的速度倍率。
+     *
+     * <p>每高一级速度翻倍，因此高出 {@code n} 级时倍率为 {@code 2^n}；
+     * 实际耗时等于基准耗时除以该倍率。</p>
      */
     public float speedMultiplierFrom(VoltageTier minimumTier) {
         int steps = stepsAbove(minimumTier);
@@ -66,7 +92,10 @@ public enum VoltageTier {
     }
 
     /**
-     * 高出一级单次总能耗翻倍；结合时间减半与电压翻 4 倍，平均电流保持不变。
+     * 计算等级提升带来的单次总能耗倍率。
+     *
+     * <p>当前规则中能耗倍率与速度倍率相同：每高一级总能耗翻倍。
+     * 配合耗时减半和标称电压提升四倍，平均电流保持稳定。</p>
      */
     public float energyMultiplierFrom(VoltageTier minimumTier) {
         return speedMultiplierFrom(minimumTier);

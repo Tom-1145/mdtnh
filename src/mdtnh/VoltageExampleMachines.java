@@ -19,10 +19,10 @@ import mindustry.type.LiquidStack;
  */
 public class VoltageExampleMachines {
 
-    /** 示例一：通用冶炼炉族。 */
+    /** 通用冶炼炉机器族及其分级配方注册器。 */
     public static VoltageRecipeRegistry furnace;
 
-    /** 示例二：材料处理器族。 */
+    /** 材料处理器机器族及其分级配方注册器。 */
     public static VoltageRecipeRegistry processor;
 
     /**
@@ -33,8 +33,8 @@ public class VoltageExampleMachines {
     public static void load() {
 
         /*
-         * 示例一：冶炼炉
-         * 从 LV 的煤压石墨一路到 EV 的钛合金（液体配方）。
+         * 冶炼炉族配方从 LV 起步并逐级覆盖到 EV。
+         * 不同最低等级用于体现配方只向同级及更高等级机器派生的规则。
          */
         furnace = new VoltageRecipeRegistry("example-furnace");
 
@@ -79,9 +79,8 @@ public class VoltageExampleMachines {
 
 
         /*
-         * 示例二：材料处理器
-         * 从 ULV 的基础蚀刻到 EV 的合金锻造与 IV 的量子组件。
-         * ULV 配方同时演示蒸汽机与手动机的自动生成。
+         * 材料处理器覆盖 ULV、EV 和 IV 等级。
+         * ULV 配方会额外进入蒸汽机与手动机，覆盖特殊动力机器分支。
          */
         processor = new VoltageRecipeRegistry("example-processor");
 
@@ -123,7 +122,15 @@ public class VoltageExampleMachines {
     }
 
     /**
-     * 为机器族中所有变体设置本地化名称、说明与容量。
+     * 为机器族所有变体统一设置显示信息和物料容量。
+     *
+     * <p>标准电力机器按等级生成名称和输入电压说明；
+     * ULV 蒸汽机和手动机使用独立说明，明确能源来源与配方限制。</p>
+     *
+     * @param registry        要配置的机器族
+     * @param baseLocalName  机器族基础中文名称
+     * @param itemCapacity   物品容量
+     * @param liquidCapacity 液体容量
      */
     private static void customizeFamily(VoltageRecipeRegistry registry, String baseLocalName,
                                         int itemCapacity, float liquidCapacity) {
