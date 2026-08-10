@@ -10,7 +10,7 @@ import java.util.Map;
 public class ModItems {
     // 公开的静态 Map，供工厂使用
     public static Map<String, Item> items = new HashMap<>();
-
+    public static Item tinyPileOfDarkAsh;
     // 金属列表（可按需增删）
     private static final String[] METALS = {"iron", "copper", "lead", "tin"};
     private static final Color[] COLORS = {
@@ -55,7 +55,7 @@ public class ModItems {
             flammability = 0.3f;
             cost = 2.0f;
         }});
-
+        tinyPileOfDarkAsh = new Item("tiny-pile-of-dark-ash", Color.valueOf("000000"));
         Log.info("ModItems loaded, total items: " + items.size());
     }
 

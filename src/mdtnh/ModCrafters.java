@@ -32,7 +32,7 @@ import java.util.Vector;
 public class ModCrafters {
 
     /** 使用 Mindustry 原生生产逻辑的蒸汽锅炉。 */
-    public static GenericCrafter Small_Coal_Fired_Boiler;
+    public static Boiler Small_Coal_Fired_Boiler;
 
     /** 供其他内容注册代码访问的多配方工厂引用。 */
     public static RecipeCrafter test;
@@ -51,18 +51,16 @@ public class ModCrafters {
     public static void load() {
 
         // 小型锅炉消耗可燃物和水，每 60 tick 生产一单位蒸汽。
-        Small_Coal_Fired_Boiler = new GenericCrafter("small-coal-fired-boiler") {{
+        Small_Coal_Fired_Boiler = new Boiler("small-coal-fired-boiler") {{
             health = 100;
             size = 2;
             requirements(Category.crafting, ItemStack.with(Items.copper, 50));
+            fuelList = new FuelList(
+                    Items.coal,new FuelList.FuelProp(new ItemStack(ModItems.tinyPileOfDarkAsh,1),21600f,1F/3F)
+            );
         }};
-        Small_Coal_Fired_Boiler.outputLiquid = new LiquidStack(ModLiquids.steam, 1);
-        Small_Coal_Fired_Boiler.craftTime = 60;
-        Small_Coal_Fired_Boiler.drawer = new DrawDefault();
-        Small_Coal_Fired_Boiler.consume(new ConsumeItemFlammable());
-        ;
-        Small_Coal_Fired_Boiler.consumeLiquid(Liquids.water, 1);
-
+        //Small_Coal_Fired_Boiler.drawer = new DrawDefault();
+        //Drawer忘写了（
         /*
          * 物品输入仓由传送设备写入原料，但不会主动把内容 dump 到外部。
          * 多方块核心会根据当前配方从指定输入仓中统一取料。
