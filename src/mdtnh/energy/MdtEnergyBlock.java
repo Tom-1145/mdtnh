@@ -4,29 +4,22 @@ import arc.Core;
 import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.Lines;
+import arc.math.Mathf;
+import arc.scene.ui.CheckBox;
+import arc.scene.ui.TextField;
+import arc.scene.ui.layout.Table;
+import arc.util.Strings;
+import arc.util.Time;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
+import mindustry.Vars;
 import mindustry.gen.Building;
 import mindustry.ui.Bar;
 import mindustry.world.Block;
 
-/**
- * MDT 能源系统的通用示例方块。
- *
- * <p>该类型可以通过 {@link EnergyRole} 配置为发电机、导线、用电器或电池。
- * 不同角色共用同一个建筑实现和储能状态，具体的自动发电、自动耗电和网络传输
- * 由 {@link MdtEnergySystem} 每个模拟秒统一结算。</p>
- *
- * <p>本方块明确关闭 Mindustry 原生电力图相关属性，避免原生电网和 MDT 离散
- * 能源网络同时处理同一建筑。</p>
- */
 public class MdtEnergyBlock extends Block {
 
-    /**
-     * 供内容注册代码使用的能源角色。
-     *
-     * <p>加载内容时会转换为能源系统统一使用的 {@link EnergySpec.Role}。</p>
-     */
+    /** 方块在离散能源系统中的用途。 */
     public enum EnergyRole {
         generator,
         wire,
@@ -34,51 +27,45 @@ public class MdtEnergyBlock extends Block {
         battery
     }
 
-    /** 方块在能源网络中的角色。 */
+    /*
+     * 方块级默认参数。
+     *
+     * 普通能源方块直接使用这些值；开启 configurableGenerator 后，
+     * 每个建筑实例会复制一份运行时 EnergySpec，并用其独立配置覆盖
+     * 输出电压与最大输出电流。
+     */
     public EnergyRole role = EnergyRole.battery;
-
-    /** 输出电压，同时决定每个 1A 输出包从来源扣除的焦耳数。 */
     public float voltageV = 12f;
-
-    /** 能够正常接收的最低输入电压；低于该值的包会被丢弃。 */
-    public float minInputVoltageV = 10f;
-
-    /** 能够正常接收的最高输入电压；高于该值的包会摧毁建筑。 */
-    public float maxInputVoltageV = 14f;
-
-    /** 内部能源缓存容量，单位为焦耳。 */
     public float capacityJ = 1000f;
-
-    /** 新建筑生成时的初始荷电比例，建议设置在 0 到 1 之间。 */
     public float initialEnergyFraction = 0f;
-
-    /** 每个模拟秒允许接收的最大电流包数量。 */
     public int maxInputA = 1;
-
-    /** 每个模拟秒允许发送的最大电流包数量。 */
     public int maxOutputA = 1;
-
-    /** 发电机每个模拟秒自动加入内部缓存的能量。 */
     public float generationJPerSecond = 0f;
-
-    /** 用电器每个模拟秒自动从内部缓存扣除的能量。 */
     public float consumptionJPerSecond = 0f;
-
-    /** 导线每个模拟秒允许通过的最大电流包数量。 */
     public int maxWireCurrentA = 1;
-
-    /** 一个 1A 包经过该导线格时产生的电压损失。 */
     public float wireLossV = 0f;
-
-    /** 未提供模组贴图时使用的原版图集区域名称。 */
     public String fallbackRegion = "battery";
 
-    /**
-     * 能源系统读取的统一规格对象。
+    /*
+     * 可配置调试发电机。
      *
-     * <p>内容字段可以在方块注册的双括号初始化器中配置；{@link #load()} 会在
-     * Mindustry 完成内容定义后把这些字段整理为不可按实例变化的规格。</p>
+     * 开启后，发电由 MdtEnergyBuild.updateTile() 根据建筑实例的配置执行。
+     * 为防止和旧 MdtEnergySystem 中读取 generationJPerSecond 的固定发电
+     * 重复叠加，示例发电机应把 generationJPerSecond 设为 0，并通过
+     * defaultConfiguredGenerationJPerSecond 指定默认增能速度。
      */
+    public boolean configurableGenerator = false;
+    public boolean defaultGeneratorEnabled = true;
+    public float defaultConfiguredVoltageV = -1f;
+    public float defaultConfiguredGenerationJPerSecond = -1f;
+    public int defaultConfiguredMaxOutputA = -1;
+
+    /** 配置输入的保护上限，防止误输入造成浮点溢出或超大循环。 */
+    public float maxConfigVoltageV = 536_870_912f;
+    public float maxConfigGenerationJPerSecond = 1_000_000_000f;
+    public int maxConfigOutputA = 1_000_000;
+
+    /** 方块级统一能源规格；可配置发电机会为每个建筑复制运行时版本。 */
     private EnergySpec spec;
 
     public MdtEnergyBlock(String name) {
@@ -88,25 +75,42 @@ public class MdtEnergyBlock extends Block {
         solid = true;
         destructible = true;
         canOverdrive = false;
-
-        // MDT 能源系统独立于 Mindustry 原生 PowerGraph。
         hasPower = false;
         outputsPower = false;
         consumesPower = false;
         conductivePower = false;
         connectedPower = false;
-
-        // 能量状态参与存档与网络同步。
         sync = true;
+
+        /*
+         * 使用 String 作为网络配置载体，格式为：
+         * enabled;voltageV;generationJPerSecond;maxOutputA
+         *
+         * Mindustry 的配置对象序列化支持 String，因此多人游戏中也会
+         * 通过正常的 tileConfig 调用交给服务器处理。
+         */
+        config(String.class, (MdtEnergyBuild build, String value) ->
+                build.applyGeneratorConfig(value));
+
+        configClear((MdtEnergyBuild build) ->
+                build.resetGeneratorConfig());
 
         buildType = MdtEnergyBuild::new;
     }
 
-    /**
-     * 加载贴图并建立供运行时读取的能源规格。
-     *
-     * <p>规格在内容加载阶段创建，之后所有该方块的建筑实例共享同一个对象。</p>
-     */
+    @Override
+    public void init() {
+        if (isConfigurableGenerator()) {
+            configurable = true;
+            saveConfig = true;
+            copyConfig = true;
+            clearOnDoubleTap = false;
+        }
+
+        super.init();
+    }
+
+    /** 在内容加载时把方块级参数复制到统一 EnergySpec。 */
     @Override
     public void load() {
         super.load();
@@ -115,8 +119,6 @@ public class MdtEnergyBlock extends Block {
         spec = new EnergySpec();
         spec.role = convertRole(role);
         spec.voltageV = voltageV;
-        spec.minInputVoltageV = minInputVoltageV;
-        spec.maxInputVoltageV = maxInputVoltageV;
         spec.capacityJ = capacityJ;
         spec.maxInputA = maxInputA;
         spec.maxOutputA = maxOutputA;
@@ -124,33 +126,49 @@ public class MdtEnergyBlock extends Block {
         spec.wireLossV = wireLossV;
     }
 
-    /**
-     * 判断方块是否为导线。
-     *
-     * <p>在 {@link #load()} 之前规格对象尚未创建，因此需要回退到内容字段判断。</p>
-     */
     public boolean isWire() {
-        return spec != null ? spec.isWire() : (role == EnergyRole.wire);
+        return spec != null ? spec.isWire() : role == EnergyRole.wire;
     }
 
-    /** @return 供能源网络使用的方块级规格。 */
+    public boolean isConfigurableGenerator() {
+        return configurableGenerator && role == EnergyRole.generator;
+    }
+
     public EnergySpec energySpec() {
         return spec;
     }
 
-    /** 将内容注册层使用的角色转换为能源系统角色。 */
-    private static EnergySpec.Role convertRole(EnergyRole r) {
-        switch (r) {
-            case generator: return EnergySpec.Role.generator;
-            case wire:      return EnergySpec.Role.wire;
-            case consumer:  return EnergySpec.Role.consumer;
-            default:        return EnergySpec.Role.battery;
+    private static EnergySpec.Role convertRole(EnergyRole value) {
+        switch (value) {
+            case generator:
+                return EnergySpec.Role.generator;
+            case wire:
+                return EnergySpec.Role.wire;
+            case consumer:
+                return EnergySpec.Role.consumer;
+            default:
+                return EnergySpec.Role.battery;
         }
     }
 
-    /**
-     * 为导线显示通过电流，为其他节点显示储能量和输入输出电流。
-     */
+    private float defaultGeneratorVoltage() {
+        return defaultConfiguredVoltageV >= 0f
+                ? defaultConfiguredVoltageV
+                : voltageV;
+    }
+
+    private float defaultGeneratorRate() {
+        return defaultConfiguredGenerationJPerSecond >= 0f
+                ? defaultConfiguredGenerationJPerSecond
+                : generationJPerSecond;
+    }
+
+    private int defaultGeneratorOutputCurrent() {
+        return defaultConfiguredMaxOutputA >= 0
+                ? defaultConfiguredMaxOutputA
+                : maxOutputA;
+    }
+
     @Override
     public void setBars() {
         super.setBars();
@@ -158,47 +176,82 @@ public class MdtEnergyBlock extends Block {
         if (isWire()) {
             addBar("mdt-current", build -> {
                 MdtEnergyBuild energy = (MdtEnergyBuild) build;
+                int maximum = Math.max(0, energy.energySpec().maxWireCurrentA);
+
                 return new Bar(
-                        () -> "Current: " + energy.nodeState.currentA + " / " + maxWireCurrentA + " A",
+                        () -> "Current: " + energy.nodeState.currentA
+                                + " / " + maximum + " A",
                         () -> Color.valueOf("ffd37f"),
-                        () -> maxWireCurrentA <= 0 ? 0f : Math.min(1f, energy.nodeState.currentA / (float) maxWireCurrentA)
+                        () -> maximum <= 0
+                                ? 0f
+                                : Math.min(1f, energy.nodeState.currentA / (float) maximum)
                 );
             });
         } else {
             addBar("mdt-energy", build -> {
                 MdtEnergyBuild energy = (MdtEnergyBuild) build;
+                float capacity = energy.energySpec().capacityJ;
+
                 return new Bar(
-                        () -> "Energy: " + Math.round(energy.nodeState.energyJ) + " / " + Math.round(capacityJ) + " J",
+                        () -> "Energy: " + Math.round(energy.nodeState.energyJ)
+                                + " / " + Math.round(capacity) + " J",
                         () -> Color.valueOf("ffd37f"),
-                        () -> capacityJ <= 0f ? 0f : Math.min(1f, energy.nodeState.energyJ / capacityJ)
+                        () -> capacity <= 0f
+                                ? 0f
+                                : Math.min(1f, energy.nodeState.energyJ / capacity)
                 );
             });
 
             addBar("mdt-io", build -> {
                 MdtEnergyBuild energy = (MdtEnergyBuild) build;
-                int maximum = Math.max(1, Math.max(maxInputA, maxOutputA));
+                EnergySpec runtime = energy.energySpec();
+                int maximum = Math.max(1,
+                        Math.max(runtime.maxInputA, energy.configuredMaxOutputA()));
+
                 return new Bar(
-                        () -> "I/O: " + energy.nodeState.inputA + " A in, "
-                                + energy.nodeState.outputA + " A out | "
-                                + Math.round(energy.nodeState.lastInputVoltageV * 10f) / 10f + " V"
-                                + " [" + minInputVoltageV + "~" + maxInputVoltageV + " V]",
+                        () -> "I/O: " + energy.nodeState.inputA
+                                + " A in, " + energy.nodeState.outputA + " A out",
                         () -> Color.valueOf("84f491"),
-                        () -> Math.min(1f, Math.max(energy.nodeState.inputA, energy.nodeState.outputA) / (float) maximum)
+                        () -> Math.min(1f,
+                                Math.max(energy.nodeState.inputA, energy.nodeState.outputA)
+                                        / (float) maximum)
                 );
             });
+
+            if (isConfigurableGenerator()) {
+                addBar("mdt-generator-config", build -> {
+                    MdtEnergyBuild energy = (MdtEnergyBuild) build;
+
+                    return new Bar(
+                            () -> (energy.generatorEnabled ? "[green]ON[] " : "[red]OFF[] ")
+                                    + Strings.fixed(energy.configuredVoltageV, 2) + " V, "
+                                    + Strings.fixed(energy.configuredGenerationJPerSecond, 1)
+                                    + " J/s, "
+                                    + energy.configuredMaxOutputA + " A",
+                            () -> energy.generatorEnabled
+                                    ? Color.valueOf("84f491")
+                                    : Color.valueOf("ff6655"),
+                            () -> energy.generatorEnabled ? 1f : 0f
+                    );
+                });
+            }
         }
     }
 
-    /**
-     * 已放置的通用能源建筑。
-     *
-     * <p>实现 {@link MdtEnergyNode} 后，能源系统可以通过接口统一访问建筑位置、
-     * 方块规格和实例状态，无需依赖具体建筑继承层次。</p>
-     */
     public class MdtEnergyBuild extends Building implements MdtEnergyNode {
 
-        /** 该建筑实例自己的能量与上一模拟秒电流统计。 */
+        /** 当前储能与上一模拟秒的电流测量值。 */
         public final EnergyState nodeState = new EnergyState();
+
+        /** 可配置发电机的实例级参数。 */
+        public boolean generatorEnabled;
+        public float configuredVoltageV;
+        public float configuredGenerationJPerSecond;
+        public int configuredMaxOutputA;
+
+        /** 仅供本建筑使用，避免修改同类方块的全局 EnergySpec。 */
+        private final EnergySpec runtimeSpec = new EnergySpec();
+        private boolean generatorConfigInitialized;
 
         @Override
         public Building energyBuilding() {
@@ -207,7 +260,13 @@ public class MdtEnergyBlock extends Block {
 
         @Override
         public EnergySpec energySpec() {
-            return MdtEnergyBlock.this.energySpec();
+            if (!isConfigurableGenerator()) {
+                return MdtEnergyBlock.this.energySpec();
+            }
+
+            ensureGeneratorConfigInitialized();
+            refreshRuntimeSpec();
+            return runtimeSpec;
         }
 
         @Override
@@ -215,48 +274,282 @@ public class MdtEnergyBlock extends Block {
             return nodeState;
         }
 
-        /**
-         * 返回该建筑所属的外层方块定义。
-         *
-         * <p>自动发电和自动耗电参数目前保存在方块类中，能源系统通过该方法读取。</p>
-         */
+        /** 兼容旧能源系统中取得方块类型的代码。 */
         public MdtEnergyBlock energyBlock() {
             return MdtEnergyBlock.this;
         }
 
-        /** @return 当前建筑是否为导线实例。 */
         public boolean isWire() {
             return energySpec().isWire();
         }
 
-        /** @return 当前能量占容量的比例；无容量节点返回 0。 */
         public float soc() {
-            float cap = energySpec().capacityJ;
-            return cap <= 0f ? 0f : nodeState.energyJ / cap;
+            float capacity = energySpec().capacityJ;
+            return capacity <= 0f ? 0f : nodeState.energyJ / capacity;
+        }
+
+        public int configuredMaxOutputA() {
+            if (!isConfigurableGenerator()) {
+                return energySpec().maxOutputA;
+            }
+
+            ensureGeneratorConfigInitialized();
+            return configuredMaxOutputA;
+        }
+
+        private void ensureGeneratorConfigInitialized() {
+            if (!generatorConfigInitialized) {
+                resetGeneratorConfig();
+            }
         }
 
         /**
-         * 根据内容配置初始化新建筑的能量。
-         *
-         * <p>导线始终从 0 开始；储能节点按照初始荷电比例计算。</p>
+         * 恢复该建筑的默认调试参数。
+         * 配置被清除、旧存档读取或建筑刚创建时都会调用。
          */
+        public void resetGeneratorConfig() {
+            generatorEnabled = defaultGeneratorEnabled;
+            configuredVoltageV = Mathf.clamp(
+                    defaultGeneratorVoltage(),
+                    0f,
+                    Math.max(0f, maxConfigVoltageV)
+            );
+            configuredGenerationJPerSecond = Mathf.clamp(
+                    defaultGeneratorRate(),
+                    0f,
+                    Math.max(0f, maxConfigGenerationJPerSecond)
+            );
+            configuredMaxOutputA = Mathf.clamp(
+                    defaultGeneratorOutputCurrent(),
+                    0,
+                    Math.max(0, maxConfigOutputA)
+            );
+            generatorConfigInitialized = true;
+            refreshRuntimeSpec();
+        }
+
+        /**
+         * 应用来自配置界面或网络的参数。
+         * 无效字段不会抛出异常，而是保留当前值并继续钳制到安全范围。
+         */
+        public void applyGeneratorConfig(String encoded) {
+            if (!isConfigurableGenerator() || encoded == null) {
+                return;
+            }
+
+            ensureGeneratorConfigInitialized();
+
+            String[] parts = encoded.split(";", -1);
+            if (parts.length != 4) {
+                return;
+            }
+
+            boolean nextEnabled =
+                    "1".equals(parts[0])
+                    || "true".equalsIgnoreCase(parts[0]);
+
+            float nextVoltage = parseFloat(parts[1], configuredVoltageV);
+            float nextRate = parseFloat(
+                    parts[2],
+                    configuredGenerationJPerSecond
+            );
+            int nextCurrent = parseInt(parts[3], configuredMaxOutputA);
+
+            generatorEnabled = nextEnabled;
+            configuredVoltageV = Mathf.clamp(
+                    nextVoltage,
+                    0f,
+                    Math.max(0f, maxConfigVoltageV)
+            );
+            configuredGenerationJPerSecond = Mathf.clamp(
+                    nextRate,
+                    0f,
+                    Math.max(0f, maxConfigGenerationJPerSecond)
+            );
+            configuredMaxOutputA = Mathf.clamp(
+                    nextCurrent,
+                    0,
+                    Math.max(0, maxConfigOutputA)
+            );
+
+            refreshRuntimeSpec();
+        }
+
+        private float parseFloat(String text, float fallback) {
+            try {
+                float value = Float.parseFloat(text.trim());
+                return Float.isFinite(value) ? value : fallback;
+            } catch (RuntimeException ignored) {
+                return fallback;
+            }
+        }
+
+        private int parseInt(String text, int fallback) {
+            try {
+                return Integer.parseInt(text.trim());
+            } catch (RuntimeException ignored) {
+                return fallback;
+            }
+        }
+
+        private String encodeGeneratorConfig(
+                boolean enabledValue,
+                float voltageValue,
+                float rateValue,
+                int currentValue
+        ) {
+            return (enabledValue ? "1" : "0")
+                    + ";" + voltageValue
+                    + ";" + rateValue
+                    + ";" + currentValue;
+        }
+
+        /**
+         * 从方块级规格复制不变部分，再覆盖该建筑的输出参数。
+         *
+         * 关闭发电机时把运行时 maxOutputA 设为 0，既停止继续增能，
+         * 也阻止其把内部残留能量继续送入网络。
+         */
+        private void refreshRuntimeSpec() {
+            EnergySpec base = MdtEnergyBlock.this.energySpec();
+            if (base == null) {
+                return;
+            }
+
+            runtimeSpec.role = base.role;
+            runtimeSpec.voltageV = configuredVoltageV;
+            runtimeSpec.capacityJ = base.capacityJ;
+            runtimeSpec.maxInputA = base.maxInputA;
+            runtimeSpec.maxOutputA = generatorEnabled
+                    ? configuredMaxOutputA
+                    : 0;
+            runtimeSpec.maxWireCurrentA = base.maxWireCurrentA;
+            runtimeSpec.wireLossV = base.wireLossV;
+        }
+
         @Override
         public void created() {
             super.created();
-            nodeState.energyJ = isWire() ? 0f : energySpec().capacityJ * initialEnergyFraction;
+
+            if (isConfigurableGenerator()) {
+                resetGeneratorConfig();
+            }
+
+            nodeState.energyJ = isWire()
+                    ? 0f
+                    : energySpec().capacityJ * initialEnergyFraction;
+        }
+
+        @Override
+        public void updateTile() {
+            super.updateTile();
+
+            if (!isConfigurableGenerator()) {
+                return;
+            }
+
+            ensureGeneratorConfigInitialized();
+
+            /*
+             * 只由服务器或单人游戏执行权威增能。
+             * Time.delta 的基准是 1 tick，因此除以 60 得到每秒速率。
+             */
+            if (!Vars.net.client()
+                    && generatorEnabled
+                    && configuredGenerationJPerSecond > 0f) {
+                float generatedJ =
+                        configuredGenerationJPerSecond * Time.delta / 60f;
+                nodeState.add(generatedJ, energySpec());
+            }
+        }
+
+        @Override
+        public void buildConfiguration(Table table) {
+            if (!isConfigurableGenerator()) {
+                return;
+            }
+
+            ensureGeneratorConfigInitialized();
+
+            table.defaults().pad(4f).left();
+
+            CheckBox enabledBox = new CheckBox("启用发电与输出");
+            enabledBox.setChecked(generatorEnabled);
+            table.add(enabledBox).colspan(2).left();
+            table.row();
+
+            table.add("输出电压 (V)");
+            TextField voltageField =
+                    new TextField(Strings.fixed(configuredVoltageV, 3));
+            table.add(voltageField).width(150f);
+            table.row();
+
+            table.add("增能速度 (J/s)");
+            TextField rateField =
+                    new TextField(Strings.fixed(
+                            configuredGenerationJPerSecond,
+                            3
+                    ));
+            table.add(rateField).width(150f);
+            table.row();
+
+            table.add("最大输出电流 (A)");
+            TextField currentField =
+                    new TextField(Integer.toString(configuredMaxOutputA));
+            table.add(currentField).width(150f);
+            table.row();
+
+            table.button("应用", () -> {
+                float nextVoltage =
+                        parseFloat(voltageField.getText(), configuredVoltageV);
+                float nextRate =
+                        parseFloat(
+                                rateField.getText(),
+                                configuredGenerationJPerSecond
+                        );
+                int nextCurrent =
+                        parseInt(currentField.getText(), configuredMaxOutputA);
+
+                configure(encodeGeneratorConfig(
+                        enabledBox.isChecked(),
+                        nextVoltage,
+                        nextRate,
+                        nextCurrent
+                ));
+            }).width(105f);
+
+            table.button("恢复默认", () -> configure(null))
+                    .width(105f);
         }
 
         /**
-         * 绘制导线与相邻能源节点之间的连接线。
-         *
-         * <p>线宽随上一模拟秒通过的电流增大，仅用于视觉反馈，不参与网络计算。</p>
+         * 返回当前配置，使蓝图、复制配置和重建计划保留调试参数。
          */
+        @Override
+        public Object config() {
+            if (!isConfigurableGenerator()) {
+                return null;
+            }
+
+            ensureGeneratorConfigInitialized();
+            return encodeGeneratorConfig(
+                    generatorEnabled,
+                    configuredVoltageV,
+                    configuredGenerationJPerSecond,
+                    configuredMaxOutputA
+            );
+        }
+
         @Override
         public void draw() {
             if (isWire()) {
                 float fraction = energySpec().maxWireCurrentA <= 0
                         ? 0f
-                        : Math.min(1f, nodeState.currentA / (float) energySpec().maxWireCurrentA);
+                        : Math.min(
+                                1f,
+                                nodeState.currentA
+                                        / (float) energySpec().maxWireCurrentA
+                        );
 
                 Draw.color(Color.valueOf("ffd37f"));
                 Lines.stroke(1.2f + 1.8f * fraction);
@@ -264,7 +557,10 @@ public class MdtEnergyBlock extends Block {
                 for (int direction = 0; direction < 4; direction++) {
                     Building nearby = tile.nearbyBuild(direction);
                     if (nearby instanceof MdtEnergyNode
-                            && MdtEnergySystem.canConnect(this, (MdtEnergyNode) nearby)) {
+                            && MdtEnergySystem.canConnect(
+                                    this,
+                                    (MdtEnergyNode) nearby
+                            )) {
                         Lines.line(x, y, nearby.x, nearby.y);
                     }
                 }
@@ -275,24 +571,53 @@ public class MdtEnergyBlock extends Block {
             super.draw();
         }
 
-        /** 将当前储能量追加到建筑存档数据。 */
         @Override
         public void write(Writes write) {
             super.write(write);
             nodeState.write(write);
+
+            if (isConfigurableGenerator()) {
+                ensureGeneratorConfigInitialized();
+                write.bool(generatorEnabled);
+                write.f(configuredVoltageV);
+                write.f(configuredGenerationJPerSecond);
+                write.i(configuredMaxOutputA);
+            }
         }
 
-        /** 从建筑存档恢复储能量。 */
         @Override
         public void read(Reads read, byte revision) {
             super.read(read, revision);
-            nodeState.read(read, energySpec());
+            nodeState.read(read, MdtEnergyBlock.this.energySpec());
+
+            if (isConfigurableGenerator()) {
+                resetGeneratorConfig();
+
+                if (revision >= 2) {
+                    generatorEnabled = read.bool();
+                    configuredVoltageV = Mathf.clamp(
+                            read.f(),
+                            0f,
+                            Math.max(0f, maxConfigVoltageV)
+                    );
+                    configuredGenerationJPerSecond = Mathf.clamp(
+                            read.f(),
+                            0f,
+                            Math.max(0f, maxConfigGenerationJPerSecond)
+                    );
+                    configuredMaxOutputA = Mathf.clamp(
+                            read.i(),
+                            0,
+                            Math.max(0, maxConfigOutputA)
+                    );
+                    refreshRuntimeSpec();
+                }
+            }
         }
 
-        /** 存档格式版本 1 保存能源状态中的当前能量。 */
         @Override
         public byte version() {
-            return 1;
+            return 2;
         }
     }
 }

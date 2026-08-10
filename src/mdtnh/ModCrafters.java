@@ -35,19 +35,30 @@ public class ModCrafters {
     public static Boiler Small_Coal_Fired_Boiler;
 
     /** 供其他内容注册代码访问的多配方工厂引用。 */
+    public static RecipeCrafter multiFactory;
+    @Deprecated
     public static RecipeCrafter test;
 
     /** 直接消耗蒸汽、无法连接电线的示例多配方工厂。 */
     public static SteamRecipeCrafter steamFactory;
-
-    /** 为多方块结构提供蒸汽蓄能的示例仓室。 */
-    public static SteamInputHatch steamInputHatch;
 
     /**
      * 创建所有生产相关内容。
      *
      * <p>舱室实例先于多方块核心注册，因为结构映射需要直接引用允许出现的方块对象。</p>
      */
+    // ---------- 多方块舱室 ----------
+    public static ItemInputHatch copperInputHatch;
+    public static ItemOutputHatch productOutputHatch;
+
+    public static LiquidInputHatch liquidInputHatch;
+    public static LiquidOutputHatch liquidOutputHatch;
+
+    public static EnergyInputHatch energyInputHatch;
+    public static SteamInputHatch steamInputHatch;
+
+    // ---------- 多方块核心 ----------
+    public static MultiblockStructer poweredAltar;
     public static void load() {
 
         // 小型锅炉消耗可燃物和水，每 60 tick 生产一单位蒸汽。
@@ -65,7 +76,40 @@ public class ModCrafters {
          * 物品输入仓由传送设备写入原料，但不会主动把内容 dump 到外部。
          * 多方块核心会根据当前配方从指定输入仓中统一取料。
          */
-        ItemInputHatch copperInputHatch = new ItemInputHatch("copper-input-hatch") {{
+
+        // 多配方工厂
+        multiFactory = new RecipeCrafter("multi-factory") {{
+            size = 2;
+            health = 300;
+            requirements(Category.crafting, ItemStack.with(Items.copper, 80, Items.silicon, 40));
+            energySpec.role = EnergySpec.Role.consumer;
+            energySpec.voltageV = 12f;
+            energySpec.capacityJ = 720f;
+            energySpec.maxInputA = 12;
+            energySpec.maxOutputA = 0;
+
+            RecipeGroup groupMetals = new RecipeGroup("metals", new RecipeCrafter.Recipe[]{
+                    RecipeCrafter.Recipe.items(new ItemStack[]{new ItemStack(Items.copper,3), new ItemStack(Items.lead,2)}, new ItemStack(Items.graphite,1), 60f).energy(144f),
+                    RecipeCrafter.Recipe.items(new ItemStack[]{new ItemStack(Items.titanium,2)}, new ItemStack(Items.silicon,2), 50f).energy(200f)
+            });
+            RecipeGroup groupElectronics = new RecipeGroup("electronics", new RecipeCrafter.Recipe[]{
+                    RecipeCrafter.Recipe.items(new ItemStack[]{new ItemStack(Items.copper,1), new ItemStack(Items.silicon,2)}, new ItemStack(Items.metaglass,2), 90f).energy(360f),
+                    RecipeCrafter.Recipe.withLiquid(new ItemStack[]{new ItemStack(Items.silicon,3)}, new LiquidStack[]{new LiquidStack(Liquids.water,0.1f)}, new ItemStack(Items.surgeAlloy,1), null, 120f).energy(500f)
+            });
+            groups = new RecipeCrafter.RecipeGroup[]{groupMetals, groupElectronics};
+        }};
+        test = multiFactory;
+
+        // 蒸汽多配方工厂（假设已在 SteamRecipeCrafter 中完成定义）
+        steamFactory = new SteamRecipeCrafter("steam-factory") {{
+            size = 2;
+            health = 300;
+            requirements(Category.crafting, ItemStack.with(Items.copper, 70, Items.lead, 50));
+            // 具体配方在 SteamRecipeCrafter 构造中定义
+        }};
+
+        // 注册物品舱室
+        copperInputHatch = new ItemInputHatch("copper-input-hatch") {{
             localizedName = "通用输入仓";
             itemCapacity = 20;
             requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
