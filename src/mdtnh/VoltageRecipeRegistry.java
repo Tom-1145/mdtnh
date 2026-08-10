@@ -48,7 +48,12 @@ public class VoltageRecipeRegistry {
         configureSpecialMachine(ulvManualMachine, VoltageTier.ULV);
     }
 
-    /** 配置一台 2x2 电力机器的输入电压区间。 */
+    /**
+     * 初始化标准电力机器的基础参数。
+     *
+     * <p>机器统一为 2x2，初始配方组为空；电压范围和基础缓存来自对应等级。
+     * 输入电流先设为 1A，注册配方后再按实际平均功率提高。</p>
+     */
     protected void configureElectricMachine(RecipeCrafter machine, VoltageTier tier) {
         machine.size = 2;
         machine.groups = new RecipeCrafter.RecipeGroup[]{};
@@ -61,7 +66,12 @@ public class VoltageRecipeRegistry {
         machine.energySpec.maxOutputA = 0;
     }
 
-    /** 配置 ULV 蒸汽或手动变体的共同尺寸与配方组初始值。 */
+    /**
+     * 初始化 ULV 特殊动力变体的共同参数。
+     *
+     * <p>蒸汽机与手动机保留 ULV 电压元数据用于配方等级显示，
+     * 但不按标准电力机器方式供能。</p>
+     */
     protected void configureSpecialMachine(RecipeCrafter machine, VoltageTier tier) {
         machine.size = 2;
         machine.groups = new RecipeCrafter.RecipeGroup[]{};
@@ -73,7 +83,12 @@ public class VoltageRecipeRegistry {
         }
     }
 
-    /** @return 指定电压等级的电力机器。 */
+    /**
+     * 获取指定电压等级的标准电力机器。
+     *
+     * @param tier 电压等级
+     * @return 对应机器实例
+     */
     public RecipeCrafter machine(VoltageTier tier) {
         return electricMachines.get(tier);
     }
@@ -149,7 +164,11 @@ public class VoltageRecipeRegistry {
         register(groupName, minimumTier, base);
     }
 
-    /** 向指定机器的同名配方组追加一条独立配方。 */
+    /**
+     * 将配方加入机器上的指定分组。
+     *
+     * <p>如果分组不存在，会扩展分组数组并创建新组；存在时直接追加。</p>
+     */
     protected void addRecipe(RecipeCrafter machine, String groupName,
                              RecipeCrafter.Recipe recipe) {
         RecipeCrafter.RecipeGroup group = findGroup(machine, groupName);
@@ -162,6 +181,11 @@ public class VoltageRecipeRegistry {
         group.addRecipe(recipe);
     }
 
+    /**
+     * 按名称查找机器已有的配方组。
+     *
+     * @return 找到的分组；不存在时返回 {@code null}
+     */
     protected RecipeCrafter.RecipeGroup findGroup(RecipeCrafter machine, String groupName) {
         for (RecipeCrafter.RecipeGroup group : machine.groups) {
             if (Objects.equals(group.name, groupName)) return group;
@@ -187,7 +211,10 @@ public class VoltageRecipeRegistry {
     }
 
     /**
-     * 能源网络按秒发送电流包，因此缓存至少容纳该配方满速运行一秒所需的能量。
+     * 根据配方功率扩充机器能源缓存。
+     *
+     * <p>缓存至少能容纳一次完整配方所需能量，并且至少能容纳该配方
+     * 满速运行一秒所需能量，从而匹配按秒供能的网络节奏。</p>
      */
     protected void updateBufferCapacity(RecipeCrafter machine, RecipeCrafter.Recipe recipe) {
         float energyPerSecond = recipe.craftTime <= 0f
@@ -196,7 +223,11 @@ public class VoltageRecipeRegistry {
         float requiredCapacity = Math.max(recipe.energyPerCraftJ, energyPerSecond);
         machine.energySpec.capacityJ = Math.max(machine.energySpec.capacityJ, requiredCapacity);
     }
-    /** 让 ULV 蒸汽机的最大蒸汽吞吐量至少能够支撑已注册配方的满速功率。 */
+    /**
+     * 按 ULV 配方平均功率提高蒸汽机吞吐上限。
+     *
+     * <p>将每秒焦耳需求换算为每秒蒸汽量，并与现有上限取较大值。</p>
+     */
     protected void updateSteamThroughput(SteamRecipeCrafter machine,
                                          RecipeCrafter.Recipe recipe) {
         if (machine.joulesPerSteamUnit <= 0f || recipe.craftTime <= 0f) return;
