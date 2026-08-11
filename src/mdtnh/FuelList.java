@@ -4,6 +4,7 @@ import arc.struct.ObjectMap;
 import arc.util.Nullable;
 import mindustry.type.Item;
 import mindustry.type.ItemStack;
+import mindustry.world.modules.ItemModule;
 
 public class FuelList {
     public static class FuelProp{
@@ -29,10 +30,10 @@ public class FuelList {
     }
     //返回可用燃料之一
     @Nullable
-    public Item check(ItemStack[] items){
-        for(ItemStack i : items){
-            if(list.containsKey(i.item) && i.amount > 0){
-                return i.item;
+    public Item check(ItemModule items){
+        for(Item i : list.keys()){
+            if(items.get(i)>0){
+                return i;
             }
         }return null;
     }

@@ -2,6 +2,7 @@ package mdtnh;
 
 import arc.graphics.Color;
 import arc.util.Log;
+import mindustry.graphics.Pal;
 import mindustry.type.Item;
 
 import java.util.HashMap;
@@ -55,7 +56,9 @@ public class ModItems {
     public static void load() {
         for (int i = 0; i < METALS.length; i++) {
             String metal = METALS[i];
-            Color base = COLORS[i];
+            Color base= Pal.darkMetal;
+            if(i<4)base = COLORS[i];
+            //应急措施。。。
 
             // 锭
             items.put(metal + "_ingot", new Item(metal + "-ingot", base) {{ cost = 1.2f; }});
@@ -87,7 +90,7 @@ public class ModItems {
             flammability = 0.3f;
             cost = 2.0f;
         }});
-
+        tinyPileOfDarkAsh = new Item ("tiny-pile-of-dark-ash", Color.valueOf("000000"));
         Log.info("ModItems loaded, total items: " + items.size());
     }
 

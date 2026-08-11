@@ -67,8 +67,14 @@ public class ModCrafters {
             size = 2;
             requirements(Category.crafting, ItemStack.with(Items.copper, 50));
             fuelList = new FuelList(
-                    Items.coal,new FuelList.FuelProp(new ItemStack(ModItems.tinyPileOfDarkAsh,1),21600f,1F/3F)
+                    Items.coal,new FuelList.FuelProp(new ItemStack(ModItems.tinyPileOfDarkAsh,1),10800f,1F/3F)
             );
+            maxHeat = 500;
+            maxSteamAmount = 3200;
+            maxWaterAmount = 1600;
+            productSpeed = 0.005f;
+            heatLoseSpeed = 0.01f;
+            heatSpeed = 0.06944f;
         }};
         //Small_Coal_Fired_Boiler.drawer = new DrawDefault();
         //Drawer忘写了（
@@ -78,6 +84,8 @@ public class ModCrafters {
          */
 
         // 多配方工厂
+        /*
+        重名内容，为保证其正常加载，已被注释
         multiFactory = new RecipeCrafter("multi-factory") {{
             size = 2;
             health = 300;
@@ -98,6 +106,7 @@ public class ModCrafters {
             });
             groups = new RecipeCrafter.RecipeGroup[]{groupMetals, groupElectronics};
         }};
+        */
         test = multiFactory;
 
         // 蒸汽多配方工厂（假设已在 SteamRecipeCrafter 中完成定义）
@@ -128,7 +137,8 @@ public class ModCrafters {
          * 液体输入仓接受管道输入的原料液体，但不会主动输出，
          * 多方块核心根据当前配方从其中取料。
          */
-        LiquidInputHatch liquidInputHatch = new LiquidInputHatch("liquid-input-hatch") {{
+        //怎么还有？
+        liquidInputHatch = new LiquidInputHatch("liquid-input-hatch") {{
             localizedName = "液体输入仓";
             liquidCapacity = 60f;
             requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
@@ -138,7 +148,8 @@ public class ModCrafters {
          * 液体输出仓由多方块核心直接写入产物液体，
          * 其容量决定结构是否具备完整的液体输出空间。
          */
-        LiquidOutputHatch liquidOutputHatch = new LiquidOutputHatch("liquid-output-hatch") {{
+        //你看，又有
+        liquidOutputHatch = new LiquidOutputHatch("liquid-output-hatch") {{
             localizedName = "液体输出仓";
             liquidCapacity = 60f;
             requirements(Category.distribution, ItemStack.with(Items.copper, 30, Items.lead, 15));
@@ -148,7 +159,8 @@ public class ModCrafters {
          * 能源输入仓是外部 MDT 能源网络与多方块核心之间的缓冲。
          * 它以消费者身份接收电流包，核心生产时再从其 EnergyState 中扣除焦耳。
          */
-        EnergyInputHatch energyInputHatch = new EnergyInputHatch("energy-input-hatch") {{
+        //还有
+        energyInputHatch = new EnergyInputHatch("energy-input-hatch") {{
             localizedName = "能源输入仓";
             requirements(Category.power, ItemStack.with(Items.copper, 50, Items.silicon, 20));
 
@@ -179,7 +191,8 @@ public class ModCrafters {
          * 单方块多配方工厂直接实现 MdtEnergyNode。
          * 其内部缓存由导线网络充电，配方每 tick 按总能耗比例扣除能量。
          */
-        RecipeCrafter multiFactory = new RecipeCrafter("multi-factory") {{
+        //出现了两个重名内容
+        multiFactory = new RecipeCrafter("multi-factory") {{
             size = 2;
             health = 300;
             requirements(Category.crafting, ItemStack.with(Items.copper, 80, Items.silicon, 40));
@@ -270,7 +283,8 @@ public class ModCrafters {
          * 多方块核心本身不接入外部能源网络。
          * 它通过 LevelStruct.energyInputs 定位结构中的能源仓，并直接消费仓内缓存。
          */
-        MultiblockStructer poweredAltar = new MultiblockStructer("powered-altar") {{
+        //你把它当局部变量玩了
+        poweredAltar = new MultiblockStructer("powered-altar") {{
             size = 1;
             requirements(Category.crafting, ItemStack.with(Items.copper, 100, Items.silicon, 50));
             buildVisibility = BuildVisibility.shown;
