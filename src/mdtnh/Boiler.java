@@ -9,6 +9,8 @@ import arc.util.Strings;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
 import mindustry.content.Liquids;
+import mindustry.entities.Damage;
+import mindustry.game.Team;
 import mindustry.gen.Building;
 import mindustry.gen.Icon;
 import mindustry.graphics.Pal;
@@ -138,7 +140,7 @@ public class Boiler extends Block {
         @Override
         public void updateTile(){
             if(dryBraised && water.amount > 0){
-                //爆炸，但现在没接口
+                Damage.damage(Team.get(-1),x,y,28f,500f);
             }
             liquidCapacity = maxWaterAmount - water.amount;
             if(burnTime > 0){
