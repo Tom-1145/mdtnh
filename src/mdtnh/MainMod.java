@@ -2,6 +2,8 @@ package mdtnh;
 
 import arc.Core;
 import arc.Events;
+import arc.audio.Sound;
+import arc.struct.ObjectMap;
 import arc.util.Log;
 
 import mdtnh.energy.MdtEnergyBlocks;
@@ -16,7 +18,7 @@ import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.mod.Mod;
 
 public class MainMod extends Mod {
-
+    public static ObjectMap<Integer, Sound> IdToSound = new ObjectMap<>();
     private MdtBuildMenuFragment buildMenu;
 
     // 新增
@@ -67,7 +69,9 @@ public class MainMod extends Mod {
 
         MdtEnergyBlocks.load();
         MdtEnergySystem.install();
-
+        Core.assets.load("sounds/steamOverFlow.ogg",Sound.class).loaded=a->{
+            IdToSound.put(1,a);
+        };
         Log.info(
                 "All content loaded."
         );
