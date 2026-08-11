@@ -62,6 +62,7 @@ public class MainMod extends Mod {
 
         ModItems.load();
         ModLiquids.load();
+        Component.load();
         ModCrafters.load();
         MdtAmmoTurretsExample.load();
         MdtImplementedTurrets.load();

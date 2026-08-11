@@ -3,7 +3,10 @@ package mdtnh.modui.buildui;
 import arc.scene.style.TextureRegionDrawable;
 import mdtnh.*;
 import mdtnh.energy.MdtEnergyBlocks;
+import mdtnh.turret.MdtImplementedTurrets;
+import mindustry.content.Blocks;
 import mindustry.world.Block;
+import mindustry.world.blocks.defense.turrets.Turret;
 
 /**
  * MDT 建造菜单的静态内容定义。
@@ -113,6 +116,17 @@ public final class MdtBuildMenuContent {
 
         registry.category("energy.consumer", "用电设备", icon(MdtEnergyBlocks.exampleConsumer));
         registry.add("energy.consumer", MdtEnergyBlocks.exampleConsumer);
+
+        registry.category("turret","炮台",icon(Blocks.arc));
+        registry.add("turret", MdtImplementedTurrets.broadsword);
+        registry.add("turret", MdtImplementedTurrets.accumulated);
+        registry.add("turret", MdtImplementedTurrets.dispersal);
+        registry.add("turret", MdtImplementedTurrets.electricArc);
+        registry.add("turret", MdtImplementedTurrets.electrode);
+        registry.add("turret", MdtImplementedTurrets.excitation);
+        registry.add("turret", MdtImplementedTurrets.ironWave);
+        registry.add("turret", MdtImplementedTurrets.magneticRail);
+        registry.add("turret", MdtImplementedTurrets.thrower);
     }
 
     /**
