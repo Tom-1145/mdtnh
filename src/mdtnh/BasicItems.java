@@ -7,26 +7,127 @@ public class BasicItems {
 
     // 内部包装类
     public static class Metal {
-        public final Item ingot;
-        public final Item block;
-        public final Item granule;
-        public final Item powder;
-        public final Item smallPilePowder;
-        public final Item pinchPowder;
-        public final Item plate;
-        public final Item foil;
+    // 原有形态
+    public final Item ingot;
+    public final Item block;
+    public final Item granule;
+    public final Item powder;
+    public final Item smallPilePowder;
+    public final Item pinchPowder;
+    public final Item plate;
+    public final Item foil;
 
-        private Metal(String metalName, Color baseColor) {
-            ingot = new Item(metalName + "-ingot", baseColor) {{ cost = 1.2f; }};
-            block = new Item(metalName + "-block", baseColor.cpy().mul(0.7f)) {{ cost = 3.0f; }};
-            granule = new Item(metalName + "-granule", baseColor.cpy().mul(1.2f)) {{ cost = 0.2f; }};
-            powder = new Item(metalName + "-powder", baseColor.cpy().mul(0.9f)) {{ cost = 0.5f; }};
-            smallPilePowder = new Item(metalName + "-small-pile-powder", baseColor.cpy().mul(0.8f)) {{ cost = 0.15f; }};
-            pinchPowder = new Item(metalName + "-pinch-powder", baseColor.cpy().mul(0.7f)) {{ cost = 0.08f; }};
-            plate = new Item(metalName + "-plate", baseColor.cpy().mul(1.1f)) {{ cost = 1.8f; }};
-            foil = new Item(metalName + "-foil", baseColor.cpy().mul(1.3f)) {{ cost = 0.8f; }};
+    // 新增形态
+    public final Item densePlate;
+    public final Item superDensePlate;
+    public final Item doublePlate;      // 2重板
+    public final Item triplePlate;      // 3重板
+    public final Item quadruplePlate;   // 4重板
+    public final Item quintuplePlate;   // 5重板
+    public final Item nanoSwarm;
+    public final Item hotIngot;
+
+    public final Item rod;
+    public final Item longRod;
+    public final Item bolt;
+    public final Item screw;
+    public final Item ring;
+    public final Item ball;
+    public final Item spring;
+    public final Item smallSpring;
+    public final Item gear;
+    public final Item smallGear;
+    public final Item shell;
+    public final Item rotor;
+    public final Item railing;
+    public final Item frame;
+
+    public final Item fineWire;
+
+    // 导线数组：索引0~5 对应 1,2,4,8,12,16 芯
+    public final Item[] wires;
+    // 线缆数组：索引0~5 对应 1,2,4,8,12,16 芯
+    public final Item[] cables;
+
+    // 管道：分为流体管道和物品管道，每个数组索引0~6 对应 微型、小型、中型、大型、巨型、4联、9联
+    public final Item[] fluidPipes;
+    public final Item[] itemPipes;
+
+    private Metal(String metalName, Color baseColor) {
+        // ----- 原有 -----
+        ingot = new Item(metalName + "-ingot", baseColor) {{ cost = 1.2f; }};
+        block = new Item(metalName + "-block", baseColor.cpy().mul(0.7f)) {{ cost = 3.0f; }};
+        granule = new Item(metalName + "-granule", baseColor.cpy().mul(1.2f)) {{ cost = 0.2f; }};
+        powder = new Item(metalName + "-powder", baseColor.cpy().mul(0.9f)) {{ cost = 0.5f; }};
+        smallPilePowder = new Item(metalName + "-small-pile-powder", baseColor.cpy().mul(0.8f)) {{ cost = 0.15f; }};
+        pinchPowder = new Item(metalName + "-pinch-powder", baseColor.cpy().mul(0.7f)) {{ cost = 0.08f; }};
+        plate = new Item(metalName + "-plate", baseColor.cpy().mul(1.1f)) {{ cost = 1.8f; }};
+        foil = new Item(metalName + "-foil", baseColor.cpy().mul(1.3f)) {{ cost = 0.8f; }};
+
+        // ----- 新增板材变种 -----
+        densePlate = new Item(metalName + "-dense-plate", baseColor.cpy().mul(0.6f)) {{ cost = 4.5f; }};
+        superDensePlate = new Item(metalName + "-super-dense-plate", baseColor.cpy().mul(0.4f)) {{ cost = 8.0f; }};
+        doublePlate = new Item(metalName + "-2x-plate", baseColor.cpy().mul(0.9f)) {{ cost = 3.6f; }};
+        triplePlate = new Item(metalName + "-3x-plate", baseColor.cpy().mul(0.85f)) {{ cost = 5.4f; }};
+        quadruplePlate = new Item(metalName + "-4x-plate", baseColor.cpy().mul(0.8f)) {{ cost = 7.2f; }};
+        quintuplePlate = new Item(metalName + "-5x-plate", baseColor.cpy().mul(0.75f)) {{ cost = 9.0f; }};
+
+        // ----- 特殊 -----
+        nanoSwarm = new Item(metalName + "-nano-swarm", baseColor.cpy().mul(1.5f)) {{ cost = 12.0f; }};
+        hotIngot = new Item(metalName + "-hot-ingot", baseColor.cpy().mul(1.6f)) {{ cost = 2.4f; }};
+
+        // ----- 零件 -----
+        rod = new Item(metalName + "-rod", baseColor.cpy().mul(0.9f)) {{ cost = 0.6f; }};
+        longRod = new Item(metalName + "-long-rod", baseColor.cpy().mul(0.85f)) {{ cost = 1.2f; }};
+        bolt = new Item(metalName + "-bolt", baseColor.cpy().mul(1.0f)) {{ cost = 0.3f; }};
+        screw = new Item(metalName + "-screw", baseColor.cpy().mul(0.95f)) {{ cost = 0.25f; }};
+        ring = new Item(metalName + "-ring", baseColor.cpy().mul(0.9f)) {{ cost = 0.4f; }};
+        ball = new Item(metalName + "-ball", baseColor.cpy().mul(0.8f)) {{ cost = 0.5f; }};
+        spring = new Item(metalName + "-spring", baseColor.cpy().mul(1.1f)) {{ cost = 0.7f; }};
+        smallSpring = new Item(metalName + "-small-spring", baseColor.cpy().mul(1.2f)) {{ cost = 0.35f; }};
+        gear = new Item(metalName + "-gear", baseColor.cpy().mul(0.8f)) {{ cost = 1.5f; }};
+        smallGear = new Item(metalName + "-small-gear", baseColor.cpy().mul(0.9f)) {{ cost = 0.75f; }};
+        shell = new Item(metalName + "-shell", baseColor.cpy().mul(0.7f)) {{ cost = 2.0f; }};
+        rotor = new Item(metalName + "-rotor", baseColor.cpy().mul(0.8f)) {{ cost = 2.5f; }};
+        railing = new Item(metalName + "-railing", baseColor.cpy().mul(0.6f)) {{ cost = 1.2f; }};
+        frame = new Item(metalName + "-frame", baseColor.cpy().mul(0.5f)) {{ cost = 3.0f; }};
+
+        // ----- 细导线 -----
+        fineWire = new Item(metalName + "-fine-wire", baseColor.cpy().mul(1.3f)) {{ cost = 0.2f; }};
+
+        // ----- 导线 (芯数: 1,2,4,8,12,16) -----
+        int[] wireCounts = {1, 2, 4, 8, 12, 16};
+        wires = new Item[wireCounts.length];
+        for (int i = 0; i < wireCounts.length; i++) {
+            int count = wireCounts[i];
+            float cost = 0.3f * count;  // 按比例定价
+            wires[i] = new Item(metalName + "-wire-" + count, baseColor.cpy().mul(1.0f)) {{ this.cost = cost; }};
+        }
+
+        // ----- 线缆 (芯数: 1,2,4,8,12,16) -----
+        cables = new Item[wireCounts.length];
+        for (int i = 0; i < wireCounts.length; i++) {
+            int count = wireCounts[i];
+            float cost = 0.5f * count;  // 线缆比导线稍贵
+            cables[i] = new Item(metalName + "-cable-" + count, baseColor.cpy().mul(0.9f)) {{ this.cost = cost; }};
+        }
+
+        // ----- 管道 (尺寸: 微型,小型,中型,大型,巨型,4联,9联) -----
+        String[] pipeSizes = {"micro", "small", "medium", "large", "giant", "quad", "nine"};
+        float[] pipeCosts = {0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f, 32.0f}; // 粗略指数增长
+
+        fluidPipes = new Item[pipeSizes.length];
+        itemPipes = new Item[pipeSizes.length];
+        for (int i = 0; i < pipeSizes.length; i++) {
+            String size = pipeSizes[i];
+            float cost = pipeCosts[i];
+            // 流体管道
+            fluidPipes[i] = new Item(metalName + "-fluid-pipe-" + size, baseColor.cpy().mul(0.8f)) {{ this.cost = cost; }};
+            // 物品管道
+            itemPipes[i] = new Item(metalName + "-item-pipe-" + size, baseColor.cpy().mul(0.7f)) {{ this.cost = cost * 1.2f; }};
         }
     }
+}
 
     // 声明所有金属
     public static Metal actinium; // 锕
