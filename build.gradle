@@ -59,6 +59,8 @@ ext{
 
 dependencies{
     compileOnly mindustryVersion == "be" ? "Anuken:MindustryBuilds:latest" : "Anuken:Mindustry:$mindustryVersion"
+    implementation "com.belerweb:pinyin4j:2.5.1"
+
 }
 
 tasks.register('jarAndroid'){
