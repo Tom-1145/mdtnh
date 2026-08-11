@@ -10,6 +10,8 @@ import mdtnh.modui.buildui.MdtBuildMenuContent;
 import mdtnh.modui.buildui.MdtBuildMenuFragment;
 import mdtnh.modui.itemui.MdtCoreItemsQuickBar;
 
+import mdtnh.turret.MdtAmmoTurretsExample;
+import mdtnh.turret.MdtImplementedTurrets;
 import mindustry.game.EventType.ClientLoadEvent;
 import mindustry.mod.Mod;
 
@@ -59,7 +61,8 @@ public class MainMod extends Mod {
         ModItems.load();
         ModLiquids.load();
         ModCrafters.load();
-
+        MdtAmmoTurretsExample.load();
+        MdtImplementedTurrets.load();
         VoltageExampleMachines.load();
 
         MdtEnergyBlocks.load();
