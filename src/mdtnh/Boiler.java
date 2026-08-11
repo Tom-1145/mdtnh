@@ -1,9 +1,10 @@
 package mdtnh;
 
 import arc.Core;
+import arc.audio.Sound;
 import arc.graphics.Color;
-import arc.math.Mathf;
-import arc.struct.ObjectMap;
+import arc.graphics.g2d.Draw;
+import arc.graphics.g2d.TextureRegion;
 import arc.util.Strings;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
@@ -13,7 +14,6 @@ import mindustry.gen.Icon;
 import mindustry.graphics.Pal;
 import mindustry.io.TypeIO;
 import mindustry.type.Item;
-import mindustry.type.ItemStack;
 import mindustry.type.Liquid;
 import mindustry.type.LiquidStack;
 import mindustry.ui.Bar;
@@ -29,13 +29,15 @@ public class Boiler extends Block {
     public float maxHeat,maxWaterAmount,maxSteamAmount,heatSpeed,heatLoseSpeed,productSpeed;
     public DrawBlock drawer = new DrawDefault();
     public FuelList fuelList;
-    public ItemStack[] fuel,slag;
+    public int frame = 3;//工作动画帧数
+    public TextureRegion[] textures;
     public Boiler(String name) {
         super(name);
         this.hasItems=true;
         this.hasLiquids=true;
         this.update=true;
         this.liquidCapacity=100f;//最大流体IO速度
+        textures = new TextureRegion[frame+1];
     }
     @Override
     public void setBars(){
@@ -86,16 +88,31 @@ public class Boiler extends Block {
             Table.add(Core.bundle.get("recipe.max_steam_amount")+": "+maxSteamAmount);
         });
     }
+    @Override
     public void load(){
         super.load();
+        textures[0]=Core.atlas.find(name+"-idle");
+        for(int i = 1;i <= frame;i++){
+            textures[i]=Core.atlas.find(name+"-burning-"+i);
+        }
     }
     public class BoilerBuilding extends Building {
         public float heat,steamAmount,burnTime;
+        int animationTick=0,ticker=0;
         public LiquidStack water = new LiquidStack(Liquids.water,0);
         boolean dryBraised;
         @Override
         public void draw(){
-            drawer.draw(this);
+            if(burnTime>0){
+                if(ticker == 7){
+                    ticker=0;
+                    animationTick= Math.toIntExact(Math.round(Math.random() * 2+1));
+                }ticker++;
+            }else{
+                ticker=0;
+                animationTick=0;
+            }
+            Draw.rect(textures[animationTick],x,y);
         }
         @Override
         public void drawLight(){
@@ -157,6 +174,7 @@ public class Boiler extends Block {
             steamAmount += liquids.get(ModLiquids.steam);
             liquids.remove(ModLiquids.steam,liquids.get(ModLiquids.steam));
             if(steamAmount > maxSteamAmount){
+                MainMod.IdToSound.get(1).at(x,y,1f,5f);
                 steamAmount = maxSteamAmount * 0.75f;
             }
             for(Item i:fuelList.list.keys()){
@@ -196,6 +214,7 @@ public class Boiler extends Block {
             write.f(steamAmount);
             write.f(burnTime);
             TypeIO.writeLiquidStacks(write,new LiquidStack[]{water});
+            write.i(animationTick);
         }
         @Override
         public void read(Reads read, byte revision){
@@ -204,6 +223,7 @@ public class Boiler extends Block {
             steamAmount = read.f();
             burnTime = read.f();
             water = TypeIO.readLiquidStacks(read)[0];
+            animationTick = read.i();
         }
     }
 }
