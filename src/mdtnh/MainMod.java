@@ -11,6 +11,7 @@ import mdtnh.energy.MdtEnergySystem;
 import mdtnh.gen.ModPlanet;
 import mdtnh.gen.ModSectors;
 import mdtnh.fluidSystem.GT.GTFluid;
+import mdtnh.gen.block.ModOre;
 import mdtnh.modui.buildui.MdtBuildMenuContent;
 import mdtnh.modui.buildui.MdtBuildMenuFragment;
 import mdtnh.modui.itemui.MdtCoreItemsQuickBar;
@@ -65,6 +66,7 @@ public class MainMod extends Mod {
 
         ModItems.load();
         ModLiquids.load();
+        ModOre.load();
         Component.load();
         ModCrafters.load();
         MdtAmmoTurretsExample.load();

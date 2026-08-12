@@ -11,6 +11,7 @@ import arc.scene.ui.*;
 import arc.scene.ui.layout.*;
 import arc.util.*;
 import arc.util.io.*;
+import mdtnh.draw.DrawerManager;          // 新增导入
 import mdtnh.energy.EnergyState;
 import mdtnh.energy.MdtEnergyNode;
 import mdtnh.hatch.EnergyInputHatch;
@@ -70,14 +71,28 @@ public class MultiblockStructer extends Block {
     /** 是否输出结构幽灵方块预览相关的调试日志。 */
     public boolean debugPreview = true;
 
-    /** 核心方块在世界和建造预览中的绘制器。 */
-    public DrawBlock drawer = new DrawDefault();
-
     /** 核心方块使用的图集区域。 */
     public TextureRegion region;
 
     /** 并行数 */
     public int parallel=8;
+
+    // ====== 绘图管理器（替代原 drawer 字段） ======
+    private DrawerManager drawerManager = new DrawerManager();
+
+    /**
+     * 设置自定义绘制器。
+     * @param drawer 新的绘制器，若为 null 则重置为默认。
+     */
+    public void setDrawer(DrawBlock drawer) {
+        drawerManager.setDrawer(drawer);
+    }
+
+    /** 获取当前绘制器。 */
+    public DrawBlock getDrawer() {
+        return drawerManager.getDrawer();
+    }
+
     /**
      * 多方块结构可执行的一条物品配方。
      *
@@ -248,7 +263,7 @@ public class MultiblockStructer extends Block {
         update = true;
         solid = true;
         buildType = MultiblockStructerBuilding::new;
-        drawer = new DrawDefault();
+        // 不再需要 drawer = new DrawDefault(); 因 DrawerManager 已默认
 
         configurable = true;
         saveConfig = true;
@@ -312,14 +327,13 @@ public class MultiblockStructer extends Block {
         Draw.rect(region, tile.worldx(), tile.worldy());
     }
 
-    /** 使用 drawer 绘制建造预览；无绘制器时直接绘制核心区域。 */
+    /** 使用 drawerManager 绘制建造预览。 */
     @Override
     public void drawPlanRegion(BuildPlan plan, Eachable<BuildPlan> list) {
-        if (drawer != null) {
-            drawer.drawPlan(this, plan, list);
-        } else {
-            Draw.rect(region, plan.drawx(), plan.drawy(), plan.rotation * 90);
-        }
+        // 收集所有计划到 Seq，以符合 DrawerManager 接口
+        Seq<BuildPlan> plans = new Seq<>();
+        list.each(plans::add);
+        drawerManager.drawPlan(this, plan, plans);
     }
 
     /**
@@ -1410,20 +1424,16 @@ public class MultiblockStructer extends Block {
             if (revision >= 1) selectedGroup = read.i();
         }
 
-        /** 使用方块绘制器渲染核心建筑。 */
+        /** 使用 drawerManager 渲染核心建筑。 */
         @Override
         public void draw() {
-            if (drawer != null) drawer.draw(this);
-            else Draw.rect(region, x, y);
-
-            // 预览不在此处绘制：v159 中 Building.draw() 不一定被调用，
-            // 统一由外层的 Trigger.postDraw 全局钩子在所有实体绘制完成后绘制。
+            drawerManager.drawBuilding(this);
         }
 
         /** 将核心绘制器提供的光照效果交给 Mindustry 渲染。 */
         @Override
         public void drawLight() {
-            if (drawer != null) drawer.drawLight(this);
+            drawerManager.drawLight(this);
         }
     }
 }

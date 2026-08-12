@@ -59,6 +59,8 @@ public class ModCrafters {
 
     // ---------- 多方块核心 ----------
     public static MultiblockStructer poweredAltar;
+
+    public static ModDrill testDrill;
     public static void load() {
 
         // 小型锅炉消耗可燃物和水，每 60 tick 生产一单位蒸汽。
@@ -367,5 +369,7 @@ public class ModCrafters {
             groups[0].Texture_name = "programming-circuit1";
             groups[1].Texture_name = "programming-circuit2";
         }};
+
+        testDrill=new ModDrill("testdrill");
     }
 }
