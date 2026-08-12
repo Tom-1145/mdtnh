@@ -1,10 +1,10 @@
 package mdtnh;
 
 import arc.Core;
-import arc.audio.Sound;
 import arc.graphics.Color;
 import arc.graphics.g2d.Draw;
 import arc.graphics.g2d.TextureRegion;
+import arc.util.Log;
 import arc.util.Strings;
 import arc.util.io.Reads;
 import arc.util.io.Writes;
@@ -100,9 +100,17 @@ public class Boiler extends Block {
     }
     public class BoilerBuilding extends Building {
         public float heat,steamAmount,burnTime;
-        int animationTick=0,ticker=0;
+        int animationTick,ticker;
         public LiquidStack water = new LiquidStack(Liquids.water,0);
         boolean dryBraised;
+        public BoilerBuilding(){
+            super();
+            liquidCapacity=maxWaterAmount;
+            water = new LiquidStack(Liquids.water,0);
+            dryBraised = false;
+            heat=20;
+            burnTime=0;
+        }
         @Override
         public void draw(){
             if(burnTime>0){
@@ -139,10 +147,14 @@ public class Boiler extends Block {
         }
         @Override
         public void updateTile(){
-            if(dryBraised && water.amount > 0){
+            if(water.amount < 0){
+                Log.info(x+","+y+":"+"water amount is negative");
+                water.amount = 0;
+                liquidCapacity=maxWaterAmount;
+            }
+            if(dryBraised && water.amount > 1E-4F){
                 Damage.damage(Team.get(-1),x,y,28f,500f);
             }
-            liquidCapacity = maxWaterAmount - water.amount;
             if(burnTime > 0){
                 burnTime--;
                 heat = Math.min(heat+heatSpeed-heatLoseSpeed,maxHeat);
@@ -156,7 +168,7 @@ public class Boiler extends Block {
                 }
                 heat = Math.max(heat-heatLoseSpeed,20);
             }
-            if(water.amount > 0){
+            if(water.amount > 1E-4F){
                 if(heat > 100){
                     if(water.amount < (heat-100)*productSpeed/160F){
                         steamAmount=steamAmount+water.amount*160;
@@ -164,10 +176,10 @@ public class Boiler extends Block {
                     }else{
                         water.amount -= (heat-100)*productSpeed/160F;
                         steamAmount = steamAmount+(heat-100)*productSpeed;
-                    }
+                    }liquidCapacity = maxWaterAmount - water.amount;
                 }
             }
-            if(water.amount == 0){
+            if(water.amount <= 1E-4F){
                 water.liquid=null;
             }
             liquids.add(ModLiquids.steam,steamAmount);
@@ -182,7 +194,7 @@ public class Boiler extends Block {
             for(Item i:fuelList.list.keys()){
                 dump(fuelList.list.get(i).slag.item);
             }
-            dryBraised = (heat > 100 && water.amount == 0);
+            dryBraised = (heat > 100 && water.amount < 1E-4F);
         }
         @Override
         public boolean acceptItem(Building source,Item item){
@@ -191,13 +203,7 @@ public class Boiler extends Block {
         @Override
         public boolean acceptLiquid(Building source,Liquid liquid){
             if(water.liquid != null){
-                return water.liquid.equals(liquid);
-            }else {
-                for (Liquid i : ModLiquids.AllWater) {
-                    if (liquids.get(i) > 0) {
-                        return i.equals(liquid);
-                    }
-                }
+                return water.liquid.equals(liquid) && liquidCapacity > 1E-4F;
             }for(Liquid i:ModLiquids.AllWater){
                 if(i.equals(liquid)){
                     return true;
@@ -208,6 +214,12 @@ public class Boiler extends Block {
         public void handleLiquid(Building source,Liquid liquid,float amount){
             if(water.liquid == null)water.liquid=liquid;
             water.amount += amount;
+            if(water.amount > maxWaterAmount){
+                source.handleLiquid(this,liquid,water.amount-maxWaterAmount);
+                water.amount = maxWaterAmount;
+            }
+            liquidCapacity = maxWaterAmount - water.amount;
+            Log.info("Boiler on"+x+","+y+":get"+amount+",now:"+water.amount+",capacity:"+liquidCapacity);
         }
         @Override
         public void write(Writes write){
@@ -226,6 +238,12 @@ public class Boiler extends Block {
             burnTime = read.f();
             water = TypeIO.readLiquidStacks(read)[0];
             animationTick = read.i();
+            initialized = true;
+        }
+        @Override
+        public void afterRead(){
+            super.afterRead();
+            liquidCapacity = maxWaterAmount - water.amount;
         }
     }
 }
