@@ -8,6 +8,8 @@ import arc.util.Log;
 
 import mdtnh.energy.MdtEnergyBlocks;
 import mdtnh.energy.MdtEnergySystem;
+import mdtnh.gen.ModPlanet;
+import mdtnh.gen.ModSectors;
 import mdtnh.fluidSystem.GT.GTFluid;
 import mdtnh.modui.buildui.MdtBuildMenuContent;
 import mdtnh.modui.buildui.MdtBuildMenuFragment;
@@ -68,7 +70,6 @@ public class MainMod extends Mod {
         MdtAmmoTurretsExample.load();
         MdtImplementedTurrets.load();
         VoltageExampleMachines.load();
-        GTFluid.ModLoad();
 
         MdtEnergyBlocks.load();
         MdtEnergySystem.install();
