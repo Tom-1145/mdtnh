@@ -76,8 +76,6 @@ public class ModCrafters {
             heatLoseSpeed = 0.01f;
             heatSpeed = 0.06944f;
         }};
-        //Small_Coal_Fired_Boiler.drawer = new DrawDefault();
-        //Drawer忘写了（
         /*
          * 物品输入仓由传送设备写入原料，但不会主动把内容 dump 到外部。
          * 多方块核心会根据当前配方从指定输入仓中统一取料。
