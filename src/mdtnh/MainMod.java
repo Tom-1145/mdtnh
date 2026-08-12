@@ -8,6 +8,8 @@ import arc.util.Log;
 
 import mdtnh.energy.MdtEnergyBlocks;
 import mdtnh.energy.MdtEnergySystem;
+import mdtnh.gen.ModPlanet;
+import mdtnh.gen.ModSectors;
 import mdtnh.modui.buildui.MdtBuildMenuContent;
 import mdtnh.modui.buildui.MdtBuildMenuFragment;
 import mdtnh.modui.itemui.MdtCoreItemsQuickBar;
@@ -73,6 +75,10 @@ public class MainMod extends Mod {
         Core.assets.load("sounds/steamOverFlow.ogg",Sound.class).loaded=a->{
             IdToSound.put(1,a);
         };
+
+        ModPlanet.load();
+        ModSectors.load();
+
         Log.info(
                 "All content loaded."
         );
