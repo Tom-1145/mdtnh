@@ -19,6 +19,7 @@ import mindustry.graphics.Layer;
 import mindustry.type.Category;
 import mindustry.type.Item;
 import mindustry.type.ItemStack;
+import mindustry.ui.Bar;
 import mindustry.world.Block;
 import mindustry.world.Tile;
 import mindustry.world.blocks.environment.OreBlock;
@@ -28,6 +29,8 @@ import mindustry.world.meta.BuildVisibility;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+
+import static java.lang.Math.max;
 
 public class ModDrill extends Block {
 
@@ -95,6 +98,15 @@ public class ModDrill extends Block {
         Drawf.dashRect(Color.yellow, leftX, bottomY, rectWidth, rectHeight);
         Draw.reset();
     }
+    @Override
+    public void setBars(){
+        super.setBars();
+        addBar("process",(ModDrillBuilding build)->new Bar(
+                ()->"process",
+                ()->Color.valueOf("ffd37f"),
+                ()->build.progress/drillTime
+        ));
+    }
 
     // ----- 内部建筑类 -----
     public class ModDrillBuilding extends Building {
@@ -116,12 +128,14 @@ public class ModDrill extends Block {
         /** 生产进度（tick 累计） */
         private float progress = 0f;
 
+        private int sumHardness = 0;
+
         /**
          * 重新扫描范围内的矿石格子
          */
         private void rescanOres() {
             oreSlots.clear();
-
+            sumHardness=0;
             for (int dx = -left; dx <= right; dx++) {
                 for (int dy = -button; dy <= top; dy++) {
                     Tile checkTile = Vars.world.tile(tile.x + dx, tile.y + dy);
@@ -132,6 +146,7 @@ public class ModDrill extends Block {
                         Item drop = ((OreBlock) overlay).itemDrop;
                         if (drop != null) {
                             oreSlots.add(new OreSlot(checkTile.x, checkTile.y, drop));
+                            sumHardness+=drop.hardness;
                         }
                     }
                 }
@@ -149,14 +164,9 @@ public class ModDrill extends Block {
 
         @Override
         public void updateTile() {
-            // 清理无效的矿石格子（已被挖掉或覆盖）
-            Iterator<OreSlot> iterator = oreSlots.iterator();
-            while (iterator.hasNext()) {
-                OreSlot slot = iterator.next();
-                Tile t = Vars.world.tile(slot.x, slot.y);
-                if (t == null || !(t.overlay() instanceof OreBlock)) {
-                    iterator.remove();
-                }
+
+            for(var i:oreSlots){
+                if(items.has(i.item))dump(i.item);
             }
 
             if (oreSlots.isEmpty()) {
@@ -165,12 +175,11 @@ public class ModDrill extends Block {
             }
 
             // 累计进度
-            progress += delta();
+            progress += delta()/max(1,sumHardness);
 
             // 达到产出周期 -> 批量产出
             if (progress >= drillTime) {
                 progress -= drillTime;
-
                 // 遍历所有有效的格子，每个格子产出 1 个对应矿物
                 for (OreSlot slot : oreSlots) {
                     // 再次检查（防止遍历过程中被修改）
@@ -182,7 +191,6 @@ public class ModDrill extends Block {
 
                     // 检查仓库是否有空间
                     if (items.get(item) >= itemCapacity) continue;
-
                     // 产出 1 个
                     items.add(item, 1);
                 }

@@ -1,13 +1,18 @@
 package mdtnh.gen;
 
 import arc.graphics.Color;
+import arc.math.Rand;
 import arc.math.geom.Vec3;
+import arc.util.Log;
 import arc.util.noise.Simplex;
 import mindustry.content.Blocks;
 import mindustry.maps.generators.PlanetGenerator;
 import mindustry.type.Sector;
 import mindustry.world.Block;
 import mindustry.world.TileGen;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static java.lang.Math.*;
 
@@ -36,7 +41,7 @@ public class MyPlanetGenerator extends PlanetGenerator {
     // 根据位置判断生物群落
     private Block getBiome(Vec3 pos) {
         float height = computeHeight(pos);
-        float temperature = 1f - Math.abs(pos.y)
+        float temperature = 1f - abs(pos.y)
                 - height * 0.05f
                 + 0.1f * Simplex.noise3d(
                 seed + 5,
@@ -91,7 +96,7 @@ public class MyPlanetGenerator extends PlanetGenerator {
     @Override
     public void generateSector(Sector sector) {
         super.generateSector(sector);
-        float latitude = Math.abs(sector.tile.v.y);
+        float latitude = abs(sector.tile.v.y);
         sector.generateEnemyBase = latitude < 0.5f && sector.id % 4 == 0;
     }
     @Override
@@ -126,7 +131,7 @@ public class MyPlanetGenerator extends PlanetGenerator {
                         worldPos.y,
                         worldPos.z
                 );
-                if (height > 0.5f && wallNoise > 0.35f) {
+                if (height > 0.6f && wallNoise > 0.35f) {
                     Block wallBlock;
                     if (floor == Blocks.snow) {
                         wallBlock = Blocks.snowWall;
@@ -168,11 +173,31 @@ public class MyPlanetGenerator extends PlanetGenerator {
                 block = Blocks.air;
             }
         });
+        Rand rnd=new Rand(sectorSeed);
+        List<MineralVein> mv = new ArrayList<>();
+        mv.add(MineralVeins.test);
+        int sum = 0;
+        for(var i:mv)sum+=i.weight;
+        final int sumWeight = sum;
+        pass((x,y)->{
+            if(x/4%4!=0||y/4%4!=0)return;
+            if (floor == Blocks.water || floor == Blocks.deepwater || floor == Blocks.sandWater) {
+                return;
+            }
+            if(block!=Blocks.air)return;
+            MineralVein vein=null;
+            int summ = 0;
+            int c=rnd.nextInt(sumWeight)+1;
+            for(var i:mv){
+                summ+=i.weight;
+                if(summ>=c)vein=i;
+            }
+            if(vein==null)return;
+            if(!rnd.chance(vein.density))return;
+            ore=vein.generateOre(rnd);
+        });
 
         // 地形扭曲
         distort(8f, 10f);
-
-        //细胞自动机平滑
-        cells(3);
     }
 }
