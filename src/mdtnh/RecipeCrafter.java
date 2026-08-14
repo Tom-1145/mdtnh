@@ -354,7 +354,7 @@ public class RecipeCrafter extends GenericCrafter {
                         }
                         return groupName + " - 空闲";
                     }
-                    return Core.bundle.get("bar.no-recipe", "无配方");
+                    return Core.bundle.get("rod.no-recipe", "无配方");
                 },
                 () -> Pal.accent,
                 () -> build.progress

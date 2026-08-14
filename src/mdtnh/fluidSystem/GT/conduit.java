@@ -44,7 +44,7 @@ public class conduit extends Block {
     public void setBars(){
         super.setBars();
         addBar("Fluid",(conduitBuilding build)->new Bar(
-                ()->build.fluid.fluid==null?Core.bundle.get("bar.liquid"):build.fluid.fluid.localizedName,
+                ()->build.fluid.fluid==null?Core.bundle.get("rod.liquid"):build.fluid.fluid.localizedName,
                 ()->build.fluid.fluid==null? Pal.gray:build.fluid.fluid.color,
                 ()->build.fluid.amount * 1F / GTFluidCapacity
         ));
