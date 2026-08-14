@@ -33,6 +33,8 @@ import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
 import net.sourceforge.pinyin4j.format.HanyuPinyinVCharType;
 import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
 
+import java.nio.charset.StandardCharsets;
+
 import static mindustry.Vars.content;
 import static mindustry.Vars.player;
 
@@ -1024,10 +1026,18 @@ public class MdtCoreItemsQuickBar {
             sortMode = SortMode.defaultOrder;
         }
 
-        String value =
-                Core.settings.getString(settingsKey, "");
+        Object rawValue = Core.settings.get(settingsKey, null);
+        String value;
 
-        if (value == null || value.isEmpty()) {
+        if (rawValue instanceof byte[]) {
+            value = new String((byte[])rawValue, StandardCharsets.UTF_8);
+        } else if (rawValue instanceof String) {
+            value = (String)rawValue;
+        } else {
+            value = "";
+        }
+
+        if (value.isEmpty()) {
             resetDefaults();
             return;
         }
@@ -1079,9 +1089,13 @@ public class MdtCoreItemsQuickBar {
             builder.append(items.get(i).name);
         }
 
+        byte[] data = builder
+                .toString()
+                .getBytes(StandardCharsets.UTF_8);
+
         Core.settings.put(
                 settingsKey,
-                builder.toString()
+                data
         );
 
         Core.settings.saveValues();
