@@ -526,6 +526,7 @@ public class MdtCoreItemsQuickBar {
 
             actions.button(
                     getSortButtonText(),
+                    Icon.settings,
                     Styles.flatt,
                     () -> {
                         cycleSortMode();
@@ -536,7 +537,7 @@ public class MdtCoreItemsQuickBar {
                          */
                         rebuildDialogItems();
                     }
-            ).padLeft(8f).row();
+            ).growX().row();
 
         }).growX().padBottom(5f);
 

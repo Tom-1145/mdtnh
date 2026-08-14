@@ -2,7 +2,7 @@
   "sourceRoot": "material-source",
   "outputRoot": "assets/sprites/material",
   "manifest": "build/material-baker/generated-files.txt",
-  "overwriteExisting": true,
+  "existingFilePolicy": "skip",
   "recipes": [
     {
       "name": "all-items",

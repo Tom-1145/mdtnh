@@ -24,7 +24,7 @@ def readMaterialBakeConfig = {
     if (!materialBakeConfigFile.exists()) {
         throw new GradleException(
                 "未找到材质烘焙配置：${materialBakeConfigFile}\n" +
-                "请在项目根目录创建 material-bake.json。"
+                        "请在项目根目录创建 material-bake.json。"
         )
     }
 
@@ -73,11 +73,11 @@ def luminance = { int argb ->
     int g = (argb >>> 8) & 0xFF
     int b = argb & 0xFF
 
-    // 与前面 Shader 方案一致的 Rec.601 亮度权重。
+    // Rec.601 亮度权重。
     return (
             r * 0.299d +
-            g * 0.587d +
-            b * 0.114d
+                    g * 0.587d +
+                    b * 0.114d
     ) / 255.0d
 }
 
@@ -123,106 +123,86 @@ def bakeOne = {
     String mode,
     String mapping ->
 
-    int width = grayImage.width
-    int height = grayImage.height
+        int width = grayImage.width
+        int height = grayImage.height
 
-    BufferedImage output = new BufferedImage(
-            width,
-            height,
-            BufferedImage.TYPE_INT_ARGB
-    )
+        BufferedImage output = new BufferedImage(
+                width,
+                height,
+                BufferedImage.TYPE_INT_ARGB
+        )
 
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
 
-            int grayArgb = grayImage.getRGB(x, y)
+                int grayArgb = grayImage.getRGB(x, y)
 
-            int grayA = (grayArgb >>> 24) & 0xFF
-            double gray = luminance(grayArgb)
+                int grayA = (grayArgb >>> 24) & 0xFF
+                double gray = luminance(grayArgb)
 
-            int materialArgb = sampleMaterial(
-                    materialImage,
-                    x,
-                    y,
-                    width,
-                    height,
-                    mapping
-            )
+                int materialArgb = sampleMaterial(
+                        materialImage,
+                        x,
+                        y,
+                        width,
+                        height,
+                        mapping
+                )
 
-            int materialA = (materialArgb >>> 24) & 0xFF
-            int materialR = (materialArgb >>> 16) & 0xFF
-            int materialG = (materialArgb >>> 8) & 0xFF
-            int materialB = materialArgb & 0xFF
+                int materialA = (materialArgb >>> 24) & 0xFF
+                int materialR = (materialArgb >>> 16) & 0xFF
+                int materialG = (materialArgb >>> 8) & 0xFF
+                int materialB = materialArgb & 0xFF
 
-            /*
-             * 材质贴图先乘 tint：
-             *
-             *  material.rgb *= tint.rgb
-             *  material.a   *= tint.a
-             */
-            double tintedR = materialR * (tint[0] / 255.0d)
-            double tintedG = materialG * (tint[1] / 255.0d)
-            double tintedB = materialB * (tint[2] / 255.0d)
-            double tintedA = materialA * (tint[3] / 255.0d)
+                /*
+                 * 材质贴图先乘 tint：
+                 */
+                double tintedR = materialR * (tint[0] / 255.0d)
+                double tintedG = materialG * (tint[1] / 255.0d)
+                double tintedB = materialB * (tint[2] / 255.0d)
+                double tintedA = materialA * (tint[3] / 255.0d)
 
-            int outR
-            int outG
-            int outB
-            int outA
+                int outR
+                int outG
+                int outB
+                int outA
 
-            switch (mode) {
-                case "multiply":
-                    /*
-                     * 默认材质模式：
-                     *
-                     * RGB：
-                     *     材质颜色 × 灰度亮度
-                     *
-                     * Alpha：
-                     *     灰度模板 Alpha × 材质 Alpha × Tint Alpha
-                     *
-                     * 注意：
-                     * 灰度模板 Alpha 不参与 RGB 亮度，因此半透明抗锯齿边缘
-                     * 不会被重复变暗。
-                     */
-                    outR = clampByte(tintedR * gray)
-                    outG = clampByte(tintedG * gray)
-                    outB = clampByte(tintedB * gray)
-                    outA = clampByte(grayA * (tintedA / 255.0d))
-                    break
+                switch (mode) {
+                    case "multiply":
+                        outR = clampByte(tintedR * gray)
+                        outG = clampByte(tintedG * gray)
+                        outB = clampByte(tintedB * gray)
+                        outA = clampByte(grayA * (tintedA / 255.0d))
+                        break
 
-                case "mask":
-                    /*
-                     * Mask 模式：
-                     * 灰度值参与透明度，不参与 RGB 明暗。
-                     */
-                    outR = clampByte(tintedR)
-                    outG = clampByte(tintedG)
-                    outB = clampByte(tintedB)
-                    outA = clampByte(
-                            grayA *
-                            gray *
-                            (tintedA / 255.0d)
-                    )
-                    break
+                    case "mask":
+                        outR = clampByte(tintedR)
+                        outG = clampByte(tintedG)
+                        outB = clampByte(tintedB)
+                        outA = clampByte(
+                                grayA *
+                                        gray *
+                                        (tintedA / 255.0d)
+                        )
+                        break
 
-                default:
-                    throw new GradleException(
-                            "未知 mode：${mode}。目前支持 multiply / mask。"
-                    )
+                    default:
+                        throw new GradleException(
+                                "未知 mode：${mode}。目前支持 multiply / mask。"
+                        )
+                }
+
+                int outArgb =
+                        ((outA & 0xFF) << 24) |
+                                ((outR & 0xFF) << 16) |
+                                ((outG & 0xFF) << 8) |
+                                (outB & 0xFF)
+
+                output.setRGB(x, y, outArgb)
             }
-
-            int outArgb =
-                    ((outA & 0xFF) << 24) |
-                    ((outR & 0xFF) << 16) |
-                    ((outG & 0xFF) << 8) |
-                    (outB & 0xFF)
-
-            output.setRGB(x, y, outArgb)
         }
-    }
 
-    return output
+        return output
 }
 
 tasks.register("bakeMaterialSprites") {
@@ -231,21 +211,31 @@ tasks.register("bakeMaterialSprites") {
 
     inputs.file(materialBakeConfigFile)
 
-    /*
-     * 这里故意 always run。
-     *
-     * 原因：
-     * 输出位于 assets/sprites 源资源目录中，并通过 manifest 精确管理。
-     * 与其让 Gradle 错误判断某个外部删除的 PNG 仍然是 up-to-date，
-     * 不如每次打包前重新生成，确保 JAR 中资源绝对一致。
-     *
-     * 对几十到几百张小型 Item PNG 来说，构建期开销通常很小，
-     * 但游戏运行时完全没有额外 Shader / flush 成本。
-     */
     outputs.upToDateWhen { false }
 
     doLast {
         def config = readMaterialBakeConfig()
+
+        // ---------- 新增：读取文件策略 ----------
+        String existingFilePolicy = (
+                config.existingFilePolicy ?: "error"
+        ).toString().toLowerCase()
+
+        def validPolicies = [
+                "skip",
+                "overwrite-generated",
+                "overwrite-all",
+                "error"
+        ]
+
+        if (!validPolicies.contains(existingFilePolicy)) {
+            throw new GradleException(
+                    "无效 existingFilePolicy: ${existingFilePolicy}\n" +
+                            "允许值: ${validPolicies.join(', ')}"
+            )
+        }
+
+        // ---------------------------------------
 
         File sourceRoot = file(
                 config.sourceRoot ?: "material-source"
@@ -259,9 +249,6 @@ tasks.register("bakeMaterialSprites") {
                 config.manifest ?: "$buildDir/material-baker/generated-files.txt"
         )
 
-        boolean overwriteExisting =
-                (config.overwriteExisting ?: false) as boolean
-
         if (!sourceRoot.exists()) {
             throw new GradleException(
                     "材质源目录不存在：${sourceRoot}"
@@ -271,17 +258,11 @@ tasks.register("bakeMaterialSprites") {
         outputRoot.mkdirs()
         manifestFile.parentFile.mkdirs()
 
-        /*
-         * 读取上一轮生成清单。
-         *
-         * 这些路径是本烘焙器拥有的文件，可以安全覆盖和清理。
-         */
         Set<String> previousGenerated = new LinkedHashSet<>()
 
         if (manifestFile.exists()) {
             manifestFile.eachLine("UTF-8") { line ->
                 String value = line.trim()
-
                 if (!value.isEmpty()) {
                     previousGenerated.add(value)
                 }
@@ -325,12 +306,6 @@ tasks.register("bakeMaterialSprites") {
                 )
             }
 
-            /*
-             * recipe.material 是默认材质。
-             * variant.material 可以覆盖它。
-             *
-             * null / "" 表示纯颜色模式。
-             */
             templates.each { templateSpec ->
 
                 String templateId =
@@ -432,26 +407,61 @@ tasks.register("bakeMaterialSprites") {
                                     .toString()
                                     .replace("\\", "/")
 
-                    /*
-                     * 首次接管某个已经存在的 PNG 时默认拒绝覆盖。
-                     *
-                     * 这样不会因为文件名恰好相同而把手绘 sprite 覆盖掉。
-                     * 如果你明确想让烘焙器接管它，可以在配置中设置：
-                     *
-                     * "overwriteExisting": true
-                     */
-                    if (
-                            outputFile.exists() &&
-                            !previousGenerated.contains(relativeOutput) &&
-                            !overwriteExisting
-                    ) {
-                        throw new GradleException(
-                                "目标 PNG 已存在且不是本烘焙器生成的文件：${outputFile}\n" +
-                                "请先备份/删除该文件，或在 material-bake.json 中设置 " +
-                                "\"overwriteExisting\": true。"
-                        )
+                    // ---------- 新增：文件存在处理 ----------
+                    boolean shouldGenerate = true
+
+                    if (outputFile.exists()) {
+
+                        switch (existingFilePolicy) {
+
+                            case "skip":
+                                // 如果之前是 Baker 生成的，保留在清单中；否则不添加
+                                if (previousGenerated.contains(relativeOutput)) {
+                                    currentGenerated.add(relativeOutput)
+                                }
+                                shouldGenerate = false
+                                logger.lifecycle(
+                                        "[MaterialBaker] Skip existing: ${relativeOutput}"
+                                )
+                                break
+
+                            case "overwrite-generated":
+                                if (!previousGenerated.contains(relativeOutput)) {
+                                    throw new GradleException(
+                                            "输出已存在且不是 MaterialBaker 生成的文件：${outputFile}\n" +
+                                                    "若要强制覆盖，请将 existingFilePolicy 改为 'overwrite-all' 或 'skip'。"
+                                    )
+                                }
+                                // 允许覆盖，继续生成
+                                break
+
+                            case "overwrite-all":
+                                // 无条件覆盖
+                                logger.lifecycle(
+                                        "[MaterialBaker] Overwrite: ${relativeOutput}"
+                                )
+                                break
+
+                            case "error":
+                                throw new GradleException(
+                                        "输出已存在：${outputFile}\n" +
+                                                "请设置 existingFilePolicy 为 'skip' / 'overwrite-generated' / 'overwrite-all'。"
+                                )
+
+                            default:
+                                // 不该走到这里，但保留兜底
+                                throw new GradleException(
+                                        "未知策略：${existingFilePolicy}"
+                                )
+                        }
                     }
 
+                    // 如果决定跳过，直接进入下一个 variant
+                    if (!shouldGenerate) {
+                        return // 注意：这里 return 的是 variants.each 闭包，跳过当前 variant
+                    }
+
+                    // ---------- 正常烘焙 ----------
                     outputFile.parentFile.mkdirs()
 
                     BufferedImage baked =
@@ -473,25 +483,19 @@ tasks.register("bakeMaterialSprites") {
                         )
                     }
 
-                    currentGenerated.add(
-                            relativeOutput
-                    )
-
+                    // 只有真正由 Baker 生成的才加入清单
+                    currentGenerated.add(relativeOutput)
                     generatedCount++
 
                     logger.lifecycle(
                             "[MaterialBaker] ${recipeName}: ${relativeOutput}"
                     )
+                    // ------------------------------
                 }
             }
         }
 
-        /*
-         * 删除配置中已经不再生成的旧文件。
-         *
-         * 只删除 manifest 记录过的路径；
-         * 不扫描、不碰其他手绘资源。
-         */
+        // ---------- 清理不再生成的旧文件 ----------
         previousGenerated.each { relativePath ->
 
             if (currentGenerated.contains(relativePath)) {
@@ -503,12 +507,12 @@ tasks.register("bakeMaterialSprites") {
 
             if (
                     stale.exists() &&
-                    stale.toPath()
-                            .normalize()
-                            .startsWith(
-                                    outputRoot.toPath()
-                                            .normalize()
-                            )
+                            stale.toPath()
+                                    .normalize()
+                                    .startsWith(
+                                            outputRoot.toPath()
+                                                    .normalize()
+                                    )
             ) {
                 if (!stale.delete()) {
                     throw new GradleException(
@@ -526,11 +530,11 @@ tasks.register("bakeMaterialSprites") {
                 currentGenerated.join(
                         System.lineSeparator()
                 ) +
-                (
-                        currentGenerated.isEmpty()
-                                ? ""
-                                : System.lineSeparator()
-                ),
+                        (
+                                currentGenerated.isEmpty()
+                                        ? ""
+                                        : System.lineSeparator()
+                        ),
                 "UTF-8"
         )
 
@@ -574,12 +578,12 @@ tasks.register("cleanMaterialSprites") {
 
             if (
                     target.exists() &&
-                    target.toPath()
-                            .normalize()
-                            .startsWith(
-                                    outputRoot.toPath()
-                                            .normalize()
-                            )
+                            target.toPath()
+                                    .normalize()
+                                    .startsWith(
+                                            outputRoot.toPath()
+                                                    .normalize()
+                                    )
             ) {
                 if (!target.delete()) {
                     throw new GradleException(
@@ -599,23 +603,11 @@ tasks.register("cleanMaterialSprites") {
 
 /*
  * 自动挂到常见 Mindustry Java Mod 构建任务。
- *
- * jar：
- *     桌面构建通常会使用。
- *
- * deploy / dex：
- *     许多 Java Mod 模板用它们生成 Android 可用 JAR。
- *
- * 如果你的工程使用其他任务名，也可以在 build.gradle 中再加：
- *
- * tasks.named("你的任务").configure {
- *     dependsOn tasks.named("bakeMaterialSprites")
- * }
  */
 tasks.matching {
     it.name == "jar" ||
-    it.name == "deploy" ||
-    it.name == "dex"
+            it.name == "deploy" ||
+            it.name == "dex"
 }.configureEach {
     dependsOn tasks.named("bakeMaterialSprites")
 }
