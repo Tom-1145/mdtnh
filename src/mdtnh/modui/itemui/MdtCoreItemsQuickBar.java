@@ -509,7 +509,7 @@ public class MdtCoreItemsQuickBar {
                         rebuildQuickItems();
                         rebuildItemTable();
                     }
-            );
+            ).growX().row();
 
             actions.button(
                     "全部清除",
@@ -522,7 +522,7 @@ public class MdtCoreItemsQuickBar {
                         rebuildQuickItems();
                         rebuildItemTable();
                     }
-            );
+            ).growX().row();
 
             actions.button(
                     getSortButtonText(),
@@ -536,7 +536,7 @@ public class MdtCoreItemsQuickBar {
                          */
                         rebuildDialogItems();
                     }
-            ).padLeft(8f);
+            ).padLeft(8f).row();
 
         }).growX().padBottom(5f);
 
@@ -1071,9 +1071,6 @@ public class MdtCoreItemsQuickBar {
     /**
      * 保存选择。
      *
-     * 格式：
-     *
-     * copper,lead,graphite,silicon
      */
     private void saveSettings() {
         StringBuilder builder =
