@@ -10,7 +10,7 @@ public class BasicItems {
     // 原有形态
     public final Item ingot;
     public final Item block;
-    public final Item granule;
+    public final Item nugget;
     public final Item powder;
     public final Item smallPilePowder;
     public final Item pinchPowder;
@@ -32,12 +32,12 @@ public class BasicItems {
     public final Item bolt;
     public final Item screw;
     public final Item ring;
-    public final Item ball;
+    public final Item round;
     public final Item spring;
     public final Item smallSpring;
     public final Item gear;
     public final Item smallGear;
-    public final Item shell;
+    public final Item  casing;
     public final Item rotor;
     public final Item railing;
     public final Item frame;
@@ -57,7 +57,7 @@ public class BasicItems {
         // ----- 原有 -----
         ingot = new Item(metalName + "-ingot", baseColor) {{ cost = 1.2f; }};
         block = new Item(metalName + "-block", baseColor.cpy().mul(0.7f)) {{ cost = 3.0f; }};
-        granule = new Item(metalName + "-granule", baseColor.cpy().mul(1.2f)) {{ cost = 0.2f; }};
+        nugget = new Item(metalName + "-nugget", baseColor.cpy().mul(1.2f)) {{ cost = 0.2f; }};
         powder = new Item(metalName + "-powder", baseColor.cpy().mul(0.9f)) {{ cost = 0.5f; }};
         smallPilePowder = new Item(metalName + "-small-pile-powder", baseColor.cpy().mul(0.8f)) {{ cost = 0.15f; }};
         pinchPowder = new Item(metalName + "-pinch-powder", baseColor.cpy().mul(0.7f)) {{ cost = 0.08f; }};
@@ -82,12 +82,12 @@ public class BasicItems {
         bolt = new Item(metalName + "-bolt", baseColor.cpy().mul(1.0f)) {{ cost = 0.3f; }};
         screw = new Item(metalName + "-screw", baseColor.cpy().mul(0.95f)) {{ cost = 0.25f; }};
         ring = new Item(metalName + "-ring", baseColor.cpy().mul(0.9f)) {{ cost = 0.4f; }};
-        ball = new Item(metalName + "-ball", baseColor.cpy().mul(0.8f)) {{ cost = 0.5f; }};
+        round = new Item(metalName + "-round", baseColor.cpy().mul(0.8f)) {{ cost = 0.5f; }};
         spring = new Item(metalName + "-spring", baseColor.cpy().mul(1.1f)) {{ cost = 0.7f; }};
         smallSpring = new Item(metalName + "-small-spring", baseColor.cpy().mul(1.2f)) {{ cost = 0.35f; }};
         gear = new Item(metalName + "-gear", baseColor.cpy().mul(0.8f)) {{ cost = 1.5f; }};
         smallGear = new Item(metalName + "-small-gear", baseColor.cpy().mul(0.9f)) {{ cost = 0.75f; }};
-        shell = new Item(metalName + "-shell", baseColor.cpy().mul(0.7f)) {{ cost = 2.0f; }};
+         casing = new Item(metalName + "- casing", baseColor.cpy().mul(0.7f)) {{ cost = 2.0f; }};
         rotor = new Item(metalName + "-rotor", baseColor.cpy().mul(0.8f)) {{ cost = 2.5f; }};
         railing = new Item(metalName + "-railing", baseColor.cpy().mul(0.6f)) {{ cost = 1.2f; }};
         frame = new Item(metalName + "-frame", baseColor.cpy().mul(0.5f)) {{ cost = 3.0f; }};
@@ -134,7 +134,7 @@ public class BasicItems {
     public static Metal aluminum; // 铝
     public static Metal americium; // 镅
     public static Metal antimony; // 锑
-    public static Metal barium; // 钡
+    public static Metal rodium; // 钡
     public static Metal berkelium; // 锫
     public static Metal beryllium; // 铍
     public static Metal bismuth; // 铋

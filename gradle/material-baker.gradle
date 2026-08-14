@@ -1,0 +1,621 @@
+import groovy.json.JsonSlurper
+
+import javax.imageio.ImageIO
+import java.awt.image.BufferedImage
+
+/*
+ * MDTNH 构建期灰度材质烘焙器
+ *
+ * 设计目标：
+ * 1. 只在 Gradle 构建阶段运行，游戏运行时零额外材质混合开销。
+ * 2. 灰度模板 RGB 控制亮度，Alpha 独立控制透明度。
+ * 3. 支持：
+ *      - 灰度模板 + 纯颜色
+ *      - 灰度模板 + 材质贴图
+ *      - 灰度模板 + 材质贴图 + Tint
+ * 4. 支持 stretch / tile 两种材质 UV 映射。
+ * 5. 生成文件直接写入 assets/sprites，文件名可与 Mindustry Content name 对齐。
+ * 6. 使用 manifest 记录自己生成过的文件，只清理这些文件，不碰手绘 sprite。
+ */
+
+def materialBakeConfigFile = file("$projectDir/material-bake.json")
+
+def readMaterialBakeConfig = {
+    if (!materialBakeConfigFile.exists()) {
+        throw new GradleException(
+                "未找到材质烘焙配置：${materialBakeConfigFile}\n" +
+                "请在项目根目录创建 material-bake.json。"
+        )
+    }
+
+    return new JsonSlurper().parse(materialBakeConfigFile)
+}
+
+def clampByte = { double value ->
+    return Math.max(0, Math.min(255, Math.round(value) as int))
+}
+
+def parseHexColor = { Object raw ->
+    if (raw == null) {
+        return [255, 255, 255, 255]
+    }
+
+    String text = raw.toString().trim()
+
+    if (text.startsWith("#")) {
+        text = text.substring(1)
+    }
+
+    if (text.length() == 6) {
+        text += "FF"
+    }
+
+    if (text.length() != 8) {
+        throw new GradleException(
+                "颜色必须是 #RRGGBB 或 #RRGGBBAA，当前值：${raw}"
+        )
+    }
+
+    try {
+        return [
+                Integer.parseInt(text.substring(0, 2), 16),
+                Integer.parseInt(text.substring(2, 4), 16),
+                Integer.parseInt(text.substring(4, 6), 16),
+                Integer.parseInt(text.substring(6, 8), 16)
+        ]
+    } catch (NumberFormatException ex) {
+        throw new GradleException("无效颜色：${raw}", ex)
+    }
+}
+
+def luminance = { int argb ->
+    int r = (argb >>> 16) & 0xFF
+    int g = (argb >>> 8) & 0xFF
+    int b = argb & 0xFF
+
+    // 与前面 Shader 方案一致的 Rec.601 亮度权重。
+    return (
+            r * 0.299d +
+            g * 0.587d +
+            b * 0.114d
+    ) / 255.0d
+}
+
+def sampleMaterial = { BufferedImage image, int x, int y, int targetWidth, int targetHeight, String mapping ->
+    if (image == null) {
+        // 没有材质贴图时使用纯白材质，后续再乘 tint。
+        return 0xFFFFFFFF as int
+    }
+
+    int sx
+    int sy
+
+    switch (mapping) {
+        case "tile":
+            sx = Math.floorMod(x, image.width)
+            sy = Math.floorMod(y, image.height)
+            break
+
+        case "stretch":
+            sx = Math.min(
+                    image.width - 1,
+                    (int) Math.floor((x / (double) targetWidth) * image.width)
+            )
+            sy = Math.min(
+                    image.height - 1,
+                    (int) Math.floor((y / (double) targetHeight) * image.height)
+            )
+            break
+
+        default:
+            throw new GradleException(
+                    "未知 mapping：${mapping}。目前支持 stretch / tile。"
+            )
+    }
+
+    return image.getRGB(sx, sy)
+}
+
+def bakeOne = {
+    BufferedImage grayImage,
+    BufferedImage materialImage,
+    List<Integer> tint,
+    String mode,
+    String mapping ->
+
+    int width = grayImage.width
+    int height = grayImage.height
+
+    BufferedImage output = new BufferedImage(
+            width,
+            height,
+            BufferedImage.TYPE_INT_ARGB
+    )
+
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+
+            int grayArgb = grayImage.getRGB(x, y)
+
+            int grayA = (grayArgb >>> 24) & 0xFF
+            double gray = luminance(grayArgb)
+
+            int materialArgb = sampleMaterial(
+                    materialImage,
+                    x,
+                    y,
+                    width,
+                    height,
+                    mapping
+            )
+
+            int materialA = (materialArgb >>> 24) & 0xFF
+            int materialR = (materialArgb >>> 16) & 0xFF
+            int materialG = (materialArgb >>> 8) & 0xFF
+            int materialB = materialArgb & 0xFF
+
+            /*
+             * 材质贴图先乘 tint：
+             *
+             *  material.rgb *= tint.rgb
+             *  material.a   *= tint.a
+             */
+            double tintedR = materialR * (tint[0] / 255.0d)
+            double tintedG = materialG * (tint[1] / 255.0d)
+            double tintedB = materialB * (tint[2] / 255.0d)
+            double tintedA = materialA * (tint[3] / 255.0d)
+
+            int outR
+            int outG
+            int outB
+            int outA
+
+            switch (mode) {
+                case "multiply":
+                    /*
+                     * 默认材质模式：
+                     *
+                     * RGB：
+                     *     材质颜色 × 灰度亮度
+                     *
+                     * Alpha：
+                     *     灰度模板 Alpha × 材质 Alpha × Tint Alpha
+                     *
+                     * 注意：
+                     * 灰度模板 Alpha 不参与 RGB 亮度，因此半透明抗锯齿边缘
+                     * 不会被重复变暗。
+                     */
+                    outR = clampByte(tintedR * gray)
+                    outG = clampByte(tintedG * gray)
+                    outB = clampByte(tintedB * gray)
+                    outA = clampByte(grayA * (tintedA / 255.0d))
+                    break
+
+                case "mask":
+                    /*
+                     * Mask 模式：
+                     * 灰度值参与透明度，不参与 RGB 明暗。
+                     */
+                    outR = clampByte(tintedR)
+                    outG = clampByte(tintedG)
+                    outB = clampByte(tintedB)
+                    outA = clampByte(
+                            grayA *
+                            gray *
+                            (tintedA / 255.0d)
+                    )
+                    break
+
+                default:
+                    throw new GradleException(
+                            "未知 mode：${mode}。目前支持 multiply / mask。"
+                    )
+            }
+
+            int outArgb =
+                    ((outA & 0xFF) << 24) |
+                    ((outR & 0xFF) << 16) |
+                    ((outG & 0xFF) << 8) |
+                    (outB & 0xFF)
+
+            output.setRGB(x, y, outArgb)
+        }
+    }
+
+    return output
+}
+
+tasks.register("bakeMaterialSprites") {
+    group = "mdtnh assets"
+    description = "根据灰度模板、材质贴图和颜色配置生成静态 PNG。"
+
+    inputs.file(materialBakeConfigFile)
+
+    /*
+     * 这里故意 always run。
+     *
+     * 原因：
+     * 输出位于 assets/sprites 源资源目录中，并通过 manifest 精确管理。
+     * 与其让 Gradle 错误判断某个外部删除的 PNG 仍然是 up-to-date，
+     * 不如每次打包前重新生成，确保 JAR 中资源绝对一致。
+     *
+     * 对几十到几百张小型 Item PNG 来说，构建期开销通常很小，
+     * 但游戏运行时完全没有额外 Shader / flush 成本。
+     */
+    outputs.upToDateWhen { false }
+
+    doLast {
+        def config = readMaterialBakeConfig()
+
+        File sourceRoot = file(
+                config.sourceRoot ?: "material-source"
+        )
+
+        File outputRoot = file(
+                config.outputRoot ?: "assets/sprites"
+        )
+
+        File manifestFile = file(
+                config.manifest ?: "$buildDir/material-baker/generated-files.txt"
+        )
+
+        boolean overwriteExisting =
+                (config.overwriteExisting ?: false) as boolean
+
+        if (!sourceRoot.exists()) {
+            throw new GradleException(
+                    "材质源目录不存在：${sourceRoot}"
+            )
+        }
+
+        outputRoot.mkdirs()
+        manifestFile.parentFile.mkdirs()
+
+        /*
+         * 读取上一轮生成清单。
+         *
+         * 这些路径是本烘焙器拥有的文件，可以安全覆盖和清理。
+         */
+        Set<String> previousGenerated = new LinkedHashSet<>()
+
+        if (manifestFile.exists()) {
+            manifestFile.eachLine("UTF-8") { line ->
+                String value = line.trim()
+
+                if (!value.isEmpty()) {
+                    previousGenerated.add(value)
+                }
+            }
+        }
+
+        Set<String> currentGenerated = new LinkedHashSet<>()
+        int generatedCount = 0
+
+        def recipes = config.recipes
+
+        if (!(recipes instanceof List) || recipes.isEmpty()) {
+            throw new GradleException(
+                    "material-bake.json 中没有 recipes。"
+            )
+        }
+
+        recipes.each { recipe ->
+
+            String recipeName =
+                    (recipe.name ?: "unnamed").toString()
+
+            String mode =
+                    (recipe.mode ?: "multiply").toString()
+
+            String mapping =
+                    (recipe.mapping ?: "stretch").toString()
+
+            def templates = recipe.templates
+            def variants = recipe.variants
+
+            if (!(templates instanceof List) || templates.isEmpty()) {
+                throw new GradleException(
+                        "Recipe '${recipeName}' 没有 templates。"
+                )
+            }
+
+            if (!(variants instanceof List) || variants.isEmpty()) {
+                throw new GradleException(
+                        "Recipe '${recipeName}' 没有 variants。"
+                )
+            }
+
+            /*
+             * recipe.material 是默认材质。
+             * variant.material 可以覆盖它。
+             *
+             * null / "" 表示纯颜色模式。
+             */
+            templates.each { templateSpec ->
+
+                String templateId =
+                        templateSpec.id.toString()
+
+                File grayFile = new File(
+                        sourceRoot,
+                        templateSpec.file.toString()
+                )
+
+                if (!grayFile.exists()) {
+                    throw new GradleException(
+                            "缺少灰度模板：${grayFile}"
+                    )
+                }
+
+                BufferedImage grayImage =
+                        ImageIO.read(grayFile)
+
+                if (grayImage == null) {
+                    throw new GradleException(
+                            "无法读取 PNG：${grayFile}"
+                    )
+                }
+
+                variants.each { variant ->
+
+                    String variantId =
+                            variant.id.toString()
+
+                    String materialPath =
+                            variant.containsKey("material")
+                                    ? (variant.material ?: "").toString()
+                                    : (recipe.material ?: "").toString()
+
+                    BufferedImage materialImage = null
+
+                    if (!materialPath.isEmpty()) {
+
+                        File materialFile =
+                                new File(
+                                        sourceRoot,
+                                        materialPath
+                                )
+
+                        if (!materialFile.exists()) {
+                            throw new GradleException(
+                                    "缺少材质贴图：${materialFile}"
+                            )
+                        }
+
+                        materialImage =
+                                ImageIO.read(materialFile)
+
+                        if (materialImage == null) {
+                            throw new GradleException(
+                                    "无法读取 PNG：${materialFile}"
+                            )
+                        }
+                    }
+
+                    List<Integer> tint =
+                            parseHexColor(
+                                    variant.tint ?: "#FFFFFFFF"
+                            )
+
+                    String outputPattern =
+                            (variant.output
+                                    ?: recipe.output
+                                    ?: "{variant}-{template}.png")
+                                    .toString()
+
+                    String outputName =
+                            outputPattern
+                                    .replace(
+                                            "{variant}",
+                                            variantId
+                                    )
+                                    .replace(
+                                            "{template}",
+                                            templateId
+                                    )
+
+                    if (!outputName.toLowerCase().endsWith(".png")) {
+                        outputName += ".png"
+                    }
+
+                    File outputFile =
+                            new File(
+                                    outputRoot,
+                                    outputName
+                            )
+
+                    String relativeOutput =
+                            projectDir.toPath()
+                                    .relativize(
+                                            outputFile.toPath()
+                                    )
+                                    .toString()
+                                    .replace("\\", "/")
+
+                    /*
+                     * 首次接管某个已经存在的 PNG 时默认拒绝覆盖。
+                     *
+                     * 这样不会因为文件名恰好相同而把手绘 sprite 覆盖掉。
+                     * 如果你明确想让烘焙器接管它，可以在配置中设置：
+                     *
+                     * "overwriteExisting": true
+                     */
+                    if (
+                            outputFile.exists() &&
+                            !previousGenerated.contains(relativeOutput) &&
+                            !overwriteExisting
+                    ) {
+                        throw new GradleException(
+                                "目标 PNG 已存在且不是本烘焙器生成的文件：${outputFile}\n" +
+                                "请先备份/删除该文件，或在 material-bake.json 中设置 " +
+                                "\"overwriteExisting\": true。"
+                        )
+                    }
+
+                    outputFile.parentFile.mkdirs()
+
+                    BufferedImage baked =
+                            bakeOne(
+                                    grayImage,
+                                    materialImage,
+                                    tint,
+                                    mode,
+                                    mapping
+                            )
+
+                    if (!ImageIO.write(
+                            baked,
+                            "png",
+                            outputFile
+                    )) {
+                        throw new GradleException(
+                                "PNG 写入失败：${outputFile}"
+                        )
+                    }
+
+                    currentGenerated.add(
+                            relativeOutput
+                    )
+
+                    generatedCount++
+
+                    logger.lifecycle(
+                            "[MaterialBaker] ${recipeName}: ${relativeOutput}"
+                    )
+                }
+            }
+        }
+
+        /*
+         * 删除配置中已经不再生成的旧文件。
+         *
+         * 只删除 manifest 记录过的路径；
+         * 不扫描、不碰其他手绘资源。
+         */
+        previousGenerated.each { relativePath ->
+
+            if (currentGenerated.contains(relativePath)) {
+                return
+            }
+
+            File stale =
+                    new File(projectDir, relativePath)
+
+            if (
+                    stale.exists() &&
+                    stale.toPath()
+                            .normalize()
+                            .startsWith(
+                                    outputRoot.toPath()
+                                            .normalize()
+                            )
+            ) {
+                if (!stale.delete()) {
+                    throw new GradleException(
+                            "无法删除旧生成文件：${stale}"
+                    )
+                }
+
+                logger.lifecycle(
+                        "[MaterialBaker] removed stale: ${relativePath}"
+                )
+            }
+        }
+
+        manifestFile.setText(
+                currentGenerated.join(
+                        System.lineSeparator()
+                ) +
+                (
+                        currentGenerated.isEmpty()
+                                ? ""
+                                : System.lineSeparator()
+                ),
+                "UTF-8"
+        )
+
+        logger.lifecycle(
+                "[MaterialBaker] 完成，共生成 ${generatedCount} 张 PNG。"
+        )
+    }
+}
+
+tasks.register("cleanMaterialSprites") {
+    group = "mdtnh assets"
+    description = "仅删除 MaterialBaker 自己生成过的 PNG。"
+
+    doLast {
+        def config = readMaterialBakeConfig()
+
+        File outputRoot = file(
+                config.outputRoot ?: "assets/sprites"
+        )
+
+        File manifestFile = file(
+                config.manifest ?: "$buildDir/material-baker/generated-files.txt"
+        )
+
+        if (!manifestFile.exists()) {
+            logger.lifecycle(
+                    "[MaterialBaker] 没有 manifest，无需清理。"
+            )
+            return
+        }
+
+        manifestFile.eachLine("UTF-8") { line ->
+            String relativePath = line.trim()
+
+            if (relativePath.isEmpty()) {
+                return
+            }
+
+            File target =
+                    new File(projectDir, relativePath)
+
+            if (
+                    target.exists() &&
+                    target.toPath()
+                            .normalize()
+                            .startsWith(
+                                    outputRoot.toPath()
+                                            .normalize()
+                            )
+            ) {
+                if (!target.delete()) {
+                    throw new GradleException(
+                            "无法删除：${target}"
+                    )
+                }
+
+                logger.lifecycle(
+                        "[MaterialBaker] removed: ${relativePath}"
+                )
+            }
+        }
+
+        manifestFile.delete()
+    }
+}
+
+/*
+ * 自动挂到常见 Mindustry Java Mod 构建任务。
+ *
+ * jar：
+ *     桌面构建通常会使用。
+ *
+ * deploy / dex：
+ *     许多 Java Mod 模板用它们生成 Android 可用 JAR。
+ *
+ * 如果你的工程使用其他任务名，也可以在 build.gradle 中再加：
+ *
+ * tasks.named("你的任务").configure {
+ *     dependsOn tasks.named("bakeMaterialSprites")
+ * }
+ */
+tasks.matching {
+    it.name == "jar" ||
+    it.name == "deploy" ||
+    it.name == "dex"
+}.configureEach {
+    dependsOn tasks.named("bakeMaterialSprites")
+}

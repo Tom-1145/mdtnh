@@ -225,7 +225,7 @@ public class MdtEnergyItemTurret extends MdtEnergyTurret {
             return super.senseObject(sensor);
         }
 
-        /** 物品炮台恢复原版 @ammo 语义；焦耳通过 MDT energy bar 查看。 */
+        /** 物品炮台恢复原版 @ammo 语义；焦耳通过 MDT energy rod 查看。 */
         @Override
         public double sense(LAccess sensor) {
             if (sensor == LAccess.ammo) return totalAmmo;

@@ -367,7 +367,7 @@ public class MultiblockStructer extends Block {
         super.setBars();
 
         addBar("level", (MultiblockStructerBuilding build) -> new Bar(
-                () -> build.Molded ? "level:" + build.level : Core.bundle.get("bar.unformed", "未成形"),
+                () -> build.Molded ? "level:" + build.level : Core.bundle.get("rod.unformed", "未成形"),
                 () -> Pal.accent,
                 () -> 1f
         ));
@@ -375,7 +375,7 @@ public class MultiblockStructer extends Block {
         addBar("progress", (MultiblockStructerBuilding build) -> new Bar(
                 () -> {
                     if (!build.Molded || build.selectedGroup < 0 || build.selectedGroup >= groups.length)
-                        return Core.bundle.get("bar.idle", "空闲");
+                        return Core.bundle.get("rod.idle", "空闲");
                     RecipeGroup group = groups[build.selectedGroup];
                     String groupName = Core.bundle.get("group." + group.name, group.name);
                     if (build.currentRecipe >= 0 && build.currentRecipe < group.recipes.length) {
