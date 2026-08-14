@@ -115,3 +115,5 @@ tasks.register('deploy', Jar){
         }
     }
 }
+apply from: "gradle/material-baker.gradle"
+

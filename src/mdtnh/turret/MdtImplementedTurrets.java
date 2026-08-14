@@ -44,11 +44,11 @@ public final class MdtImplementedTurrets {
         Item steelIngot = ModItems.get("steel", "ingot");
         Item tungstenIngot = ModItems.get("tungsten", "ingot");
 
-        // “金属滚珠”统一改为粒（granule）。
-        Item copperGranule = ModItems.get("copper", "granule");
-        Item bronzeGranule = ModItems.get("bronze", "granule");
-        Item ironGranule = ModItems.get("iron", "granule");
-        Item steelGranule = ModItems.get("steel", "granule");
+        // “金属滚珠”统一改为粒（nugget）。
+        Item copperGranule = ModItems.get("copper", "nugget");
+        Item bronzeGranule = ModItems.get("bronze", "nugget");
+        Item ironGranule = ModItems.get("iron", "nugget");
+        Item steelGranule = ModItems.get("steel", "nugget");
 
         // ============================================================
         // 蒸汽

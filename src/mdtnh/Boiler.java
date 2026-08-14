@@ -51,7 +51,7 @@ public class Boiler extends Block {
                 ()->build.heat/maxHeat
         ));
         addBar("Water",(BoilerBuilding build)->new Bar(
-                ()->build.water.liquid == null ? Core.bundle.get("bar.liquid"):build.water.liquid.localizedName,
+                ()->build.water.liquid == null ? Core.bundle.get("rod.liquid"):build.water.liquid.localizedName,
                 ()->build.water.liquid == null? Color.gray:build.water.liquid.color,
                 ()->build.water.amount/maxWaterAmount
         ));

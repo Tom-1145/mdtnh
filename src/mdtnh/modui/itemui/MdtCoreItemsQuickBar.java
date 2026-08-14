@@ -57,7 +57,7 @@ public class MdtCoreItemsQuickBar {
 
     /** Core.settings 中保存快捷物品的 key。 */
     private static final String settingsKey =
-            "mdtnh-core-item-quickbar";
+            "mdtnh-core-item-quickrod";
 
     /**
      * 原生 Arc KeyBind。
@@ -154,14 +154,14 @@ public class MdtCoreItemsQuickBar {
         if (installed) return;
 
         if (Vars.ui == null || Vars.ui.hudfrag == null) {
-            Log.err("MDT quick item bar: HUD is not ready.");
+            Log.err("MDT quick item rod: HUD is not ready.");
             return;
         }
 
         host = Vars.ui.hudfrag.coreItems;
 
         if (host == null) {
-            Log.err("MDT quick item bar: coreItems is null.");
+            Log.err("MDT quick item rod: coreItems is null.");
             return;
         }
 
@@ -218,7 +218,7 @@ public class MdtCoreItemsQuickBar {
         });
 
         Log.info(
-                "MDT core item quick bar installed. Selected items: @",
+                "MDT core item quick rod installed. Selected items: @",
                 selected.size
         );
     }
@@ -526,6 +526,7 @@ public class MdtCoreItemsQuickBar {
 
             actions.button(
                     getSortButtonText(),
+                    Icon.settings,
                     Styles.flatt,
                     () -> {
                         cycleSortMode();
@@ -536,7 +537,7 @@ public class MdtCoreItemsQuickBar {
                          */
                         rebuildDialogItems();
                     }
-            ).padLeft(8f).row();
+            ).growX().row();
 
         }).growX().padBottom(5f);
 
