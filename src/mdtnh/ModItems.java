@@ -260,9 +260,9 @@ public class ModItems {
             items.put(metal + "_ingot", new Item(metal + "-ingot", base) {{ cost = 1.2f; }});
             items.put(metal + "_block", new Item(metal + "-block", base.cpy().mul(0.7f)) {{ cost = 3.0f; }});
             items.put(metal + "_nugget", new Item(metal + "-nugget", base.cpy().mul(1.2f)) {{ cost = 0.2f; }});
-            items.put(metal + "_powder", new Item(metal + "-powder", base.cpy().mul(0.9f)) {{ cost = 0.5f; }});
-            items.put(metal + "_small-pile-powder", new Item(metal + "-small-pile-powder", base.cpy().mul(0.8f)) {{ cost = 0.15f; }});
-            items.put(metal + "_pinch-powder", new Item(metal + "-pinch-powder", base.cpy().mul(0.7f)) {{ cost = 0.08f; }});
+            items.put(metal + "_dust", new Item(metal + "-dust", base.cpy().mul(0.9f)) {{ cost = 0.5f; }});
+            items.put(metal + "_small-pile-of-dust", new Item(metal + "-small-pile-of-dust", base.cpy().mul(0.8f)) {{ cost = 0.15f; }});
+            items.put(metal + "_tiny-pile-of-dust", new Item(metal + "-tiny-pile-of-dust", base.cpy().mul(0.7f)) {{ cost = 0.08f; }});
             items.put(metal + "_plate", new Item(metal + "-plate", base.cpy().mul(1.1f)) {{ cost = 1.8f; }});
             items.put(metal + "_foil", new Item(metal + "-foil", base.cpy().mul(1.3f)) {{ cost = 0.8f; }});
             items.put(metal + "_rod", new Item(metal + "-rod", base.cpy().mul(1.1f)) {{ cost = 1.8f; }});
@@ -286,9 +286,9 @@ public class ModItems {
             items.put(metal + "_small-spring", new Item(metal + "-small-spring", base.cpy().mul(1.2f)) {{ cost = 0.35f; }});
             items.put(metal + "_gear", new Item(metal + "-gear", base.cpy().mul(0.8f)) {{ cost = 1.5f; }});
             items.put(metal + "_small-gear", new Item(metal + "-small-gear", base.cpy().mul(0.9f)) {{ cost = 0.75f; }});
-            items.put(metal + "_ casing", new Item(metal + "- casing", base.cpy().mul(0.7f)) {{ cost = 2.0f; }});
+            items.put(metal + "_casing", new Item(metal + "-casing", base.cpy().mul(0.7f)) {{ cost = 2.0f; }});
             items.put(metal + "_rotor", new Item(metal + "-rotor", base.cpy().mul(0.8f)) {{ cost = 2.5f; }});
-            items.put(metal + "_railing", new Item(metal + "-railing", base.cpy().mul(0.6f)) {{ cost = 1.2f; }});
+            items.put(metal + "_bars", new Item(metal + "-bars", base.cpy().mul(0.6f)) {{ cost = 1.2f; }});
             items.put(metal + "_frame", new Item(metal + "-frame", base.cpy().mul(0.5f)) {{ cost = 3.0f; }});
 
             items.put(metal + "_fine-wire", new Item(metal + "-fine-wire", base.cpy().mul(1.3f)) {{ cost = 0.2f; }});
