@@ -150,7 +150,7 @@ gradle-app.setting
 /html/build/
 /ios/build/
 /ios-moe/build/
-
+/assets/sprites/material
 ## OS Specific
 .DS_Store
 Thumbs.db
